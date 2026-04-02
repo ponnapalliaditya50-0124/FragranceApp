@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Olfactory Profiling | Fragrance Discovery</title>
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=Playfair+Display:ital,wght@0,400;0,600;0,800;1,400&display=swap" rel="stylesheet">
+    <!-- CSS -->
+    <link rel="stylesheet" href="styles/style.css">
+</head>
+<body>
+
+    <div class="background-effects">
+        <div class="glow-orb orb-1"></div>
+        <div class="glow-orb orb-2"></div>
+        <div class="glow-orb orb-3"></div>
+    </div>
+
+    <!-- Top Auth Link -->
+    <div class="auth-top-nav">
+        <button id="btn-top-login" class="btn-ghost btn-sm">Sign In</button>
+    </div>
+
+    <!-- Header -->
+    <header class="main-header">
+        <h1 class="logo">Maison d'Aura</h1>
+        <p class="subtitle">Bespoke Olfactory Profiling</p>
+    </header>
+
+    <main id="app-container">
+        <!-- WIZARD PHASE -->
+        <section id="wizard-view" class="view active">
+            <div class="glass-panel wizard-container">
+                <!-- Progress Bar -->
+                <div class="progress-bar">
+                    <div class="progress-fill" id="wizard-progress"></div>
+                </div>
+
+                <!-- Step 1: Favorites -->
+                <div class="wizard-step active" id="step-1">
+                    <h2>Current Favorites</h2>
+                    <p class="subtitle">What fragrance are you wearing and loving right now?</p>
+                    <div class="autocomplete-wrapper mt-3">
+                        <div class="input-group">
+                            <input type="text" id="fav-input" placeholder="e.g. Baccarat Rouge 540..." autocomplete="off">
+                            <button class="btn-primary" id="btn-add-fav">Add</button>
+                        </div>
+                        <div class="autocomplete-dropdown" id="autocomplete-dropdown">
+                            <!-- JS populated suggestions -->
+                        </div>
+                    </div>
+                    <div class="tag-container mt-2" id="fav-tags"></div>
+
+                    <!-- Start Here Section -->
+                    <div class="start-here mt-4" id="start-here-section">
+                        <div class="start-here-divider">
+                            <span>Not sure? Start here</span>
+                        </div>
+                        <div class="starter-grid mt-2" id="starter-grid">
+                            <!-- Populated by JS -->
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Step 2: Scent Profile Builder -->
+                <div class="wizard-step" id="step-2">
+                    <h2>Scent Profile</h2>
+                    <p class="subtitle">Tell us what draws you in — select notes, accords, or describe it in your words.</p>
+
+                    <!-- Zone A: Natural Language Description -->
+                    <div class="scent-describe mt-3">
+                        <div class="describe-input-wrapper">
+                            <textarea id="scent-description" rows="2"
+                                placeholder="Describe your ideal scent… warm and smoky? Fresh and clean? Like a walk through a cedar forest?"></textarea>
+                            <button class="mic-btn" id="btn-mic" title="Speak your preference" type="button">
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+                                    <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+                                    <line x1="12" y1="19" x2="12" y2="23"/>
+                                    <line x1="8" y1="23" x2="16" y2="23"/>
+                                </svg>
+                            </button>
+                        </div>
+                        <div class="mic-status" id="mic-status"></div>
+                    </div>
+
+                    <!-- Zone B: Note Families -->
+                    <h4 class="sub-heading mt-4">Notes That Draw You In</h4>
+                    <div class="family-grid mt-2" id="family-grid">
+                        <!-- Populated by JS -->
+                    </div>
+
+                    <!-- Zone C: Accord Palette -->
+                    <h4 class="sub-heading mt-4">Accord Families</h4>
+                    <div class="selectable-grid mt-2" id="accord-grid">
+                        <!-- Populated by JS -->
+                    </div>
+                </div>
+
+                <!-- Step 3: Usage Intent -->
+                <div class="wizard-step" id="step-3">
+                    <h2>Usage Intent</h2>
+                    <p class="subtitle">When will you wear this? Describe it, choose occasions, or pick climates.</p>
+                    
+                    <!-- Zone A: Natural Language Description for Usage -->
+                    <div class="scent-describe mt-3">
+                        <div class="describe-input-wrapper">
+                            <textarea id="usage-description" rows="2"
+                                placeholder="E.g., I want something for a summer beach vacation, or a cozy evening by the fire."></textarea>
+                            <button class="mic-btn" id="btn-mic-usage" title="Speak your usage intent" type="button">
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+                                    <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+                                    <line x1="12" y1="19" x2="12" y2="23"/>
+                                    <line x1="8" y1="23" x2="16" y2="23"/>
+                                </svg>
+                            </button>
+                        </div>
+                        <div class="mic-status" id="mic-status-usage"></div>
+                    </div>
+
+                    <h4 class="sub-heading mt-4">Occasion</h4>
+                    <div class="selectable-grid" id="occasion-grid">
+                        <div class="select-pill" data-type="occ" data-val="Office">Office</div>
+                        <div class="select-pill" data-type="occ" data-val="Casual">Casual</div>
+                        <div class="select-pill" data-type="occ" data-val="Date Night">Date Night</div>
+                        <div class="select-pill" data-type="occ" data-val="Clubbing">Clubbing</div>
+                        <div class="select-pill" data-type="occ" data-val="Intimate">Intimate</div>
+                        <div class="select-pill" data-type="occ" data-val="Formal/Event">Formal/Event</div>
+                        <div class="select-pill" data-type="occ" data-val="Gym/Active">Gym/Active</div>
+                        <div class="select-pill" data-type="occ" data-val="Bedtime/Relaxing">Bedtime/Relaxing</div>
+                        <div class="select-pill" data-type="occ" data-val="Vacation/Holiday">Vacation/Holiday</div>
+                        <div class="select-pill" data-type="occ" data-val="Everyday/Signature">Everyday/Signature</div>
+                    </div>
+
+                    <h4 class="sub-heading mt-4">Climate</h4>
+                    <div class="selectable-grid" id="climate-grid">
+                        <div class="select-pill" data-type="cli" data-val="Hot & Humid">Hot & Humid</div>
+                        <div class="select-pill" data-type="cli" data-val="Dry & Desert">Dry & Desert</div>
+                        <div class="select-pill" data-type="cli" data-val="Temperate">Temperate</div>
+                        <div class="select-pill" data-type="cli" data-val="Cold & Crisp">Cold & Crisp</div>
+                        <div class="select-pill" data-type="cli" data-val="Tropical">Tropical</div>
+                    </div>
+
+                    <div id="perf-section" class="cascading-section">
+                        <h4 class="sub-heading mt-4">Desired Performance</h4>
+                        <div class="performance-wrapper mt-2">
+                            <div class="perf-text-area" style="display: flex; flex-direction: column; gap: 0.2rem; align-items: center; text-align: center; margin-bottom: 1.5rem;">
+                                <span class="perf-label gold-text" id="perf-label" style="font-size: 1.4rem; font-family: var(--font-heading); margin: 0;">Moderate Trail</span>
+                                <span class="perf-desc" id="perf-desc" style="color: var(--clr-text-secondary); font-size: 0.8rem; font-weight: 300;">Noticeable, balanced sillage that leaves a gentle trail.</span>
+                            </div>
+                            <div class="slider-container">
+                                <input type="range" id="perf-slider" min="0" max="100" value="50" class="gold-slider">
+                                <div class="slider-labels">
+                                    <span>Skin Scent</span>
+                                    <span>Beast Mode</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div id="budget-section" class="cascading-section">
+                        <h4 class="sub-heading mt-4">Investment Tier</h4>
+                        <p class="subtitle" style="font-size: 0.8rem; margin-top:0.2rem; margin-bottom: 1rem;">Select your price comfort zone.</p>
+                        <div class="budget-selector" id="budget-grid">
+                            <div class="budget-pill" data-val="1">
+                                <span class="tier">$</span>
+                                <span class="desc">Designer/Accessible</span>
+                            </div>
+                            <div class="budget-pill" data-val="2">
+                                <span class="tier">$$</span>
+                                <span class="desc">Premium Designer</span>
+                            </div>
+                            <div class="budget-pill" data-val="3">
+                                <span class="tier">$$$</span>
+                                <span class="desc">High-End Niche</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Wizard Controls -->
+                <div class="wizard-controls">
+                    <button class="btn-ghost" id="btn-prev" style="visibility: hidden;">Back</button>
+                    <button class="btn-primary" id="btn-next">Next Step</button>
+                </div>
+            </div>
+        </section>
+
+        <!-- LOADING PHASE -->
+        <section id="loading-view" class="view">
+            <div class="loader-container">
+                <div class="dna-helix-container">
+                    <div class="dna-strand strand-1"></div>
+                    <div class="dna-strand strand-2"></div>
+                </div>
+                <h2 class="loader-text pulse-text mt-4" id="loader-text">Extracting scent markers...</h2>
+            </div>
+        </section>
+
+        <!-- RESULTS PHASE -->
+        <section id="results-view" class="view">
+            <div class="archetype-header glass-plaque">
+                <p class="plaque-label">Your Bespoke Profile</p>
+                <h1 id="archetype-title" class="plaque-title"></h1>
+                <p id="archetype-desc" class="plaque-desc"></p>
+            </div>
+
+            <div id="profile-panel" class="profile-panel glass-panel" hidden>
+                <div class="profile-panel-header">
+                    <div>
+                        <p class="profile-panel-label">Saved Fragrance Profile</p>
+                        <h3 class="profile-panel-title">Your collected recommendations</h3>
+                    </div>
+                    <p id="profile-panel-meta" class="profile-panel-meta"></p>
+                </div>
+                <p id="profile-panel-empty" class="profile-panel-empty"></p>
+                <div id="profile-panel-grid" class="profile-panel-grid"></div>
+            </div>
+
+            <div class="results-container mt-4" id="results-grid">
+                <!-- JS Populated Cards go here -->
+            </div>
+            
+            <div style="text-align: center; margin-top: 3rem;">
+                <button class="btn-primary" id="btn-restart">Retake Profiling</button>
+            </div>
+        </section>
+
+        <section id="profile-view" class="view">
+            <div class="profile-shell">
+                <aside class="profile-sidebar glass-panel">
+                    <div class="profile-sidebar-top">
+                        <button id="btn-profile-close" class="btn-ghost btn-sm" type="button">Back</button>
+                        <button id="btn-profile-logout" class="btn-ghost btn-sm" type="button">Log Out</button>
+                    </div>
+
+                    <div class="profile-personality-card">
+                        <p class="profile-section-label">Fragrance Personality</p>
+                        <h2 id="profile-personality-title" class="profile-personality-title"></h2>
+                        <p id="profile-personality-desc" class="profile-personality-desc"></p>
+                        <p id="profile-personality-meta" class="profile-personality-meta"></p>
+                    </div>
+
+                    <div class="profile-filter-panel">
+                        <div class="profile-filter-header">
+                            <p class="profile-section-label">Filter Your Collection</p>
+                            <button id="btn-profile-clear-filters" class="btn-ghost btn-sm" type="button">Clear</button>
+                        </div>
+
+                        <div class="profile-filter-block">
+                            <label class="profile-input-label" for="profile-search">Search</label>
+                            <input type="text" id="profile-search" class="glassy-input" placeholder="Search by fragrance or house">
+                        </div>
+
+                        <div class="profile-filter-block">
+                            <label class="profile-input-label" for="profile-house-filter">House</label>
+                            <select id="profile-house-filter" class="glassy-select">
+                                <option value="all">All houses</option>
+                            </select>
+                        </div>
+
+                        <div class="profile-filter-block">
+                            <label class="profile-input-label" for="profile-tier-filter">Price Tier</label>
+                            <select id="profile-tier-filter" class="glassy-select">
+                                <option value="all">All tiers</option>
+                                <option value="1">$</option>
+                                <option value="2">$$</option>
+                                <option value="3">$$$</option>
+                            </select>
+                        </div>
+
+                        <div class="profile-filter-block">
+                            <span class="profile-input-label">Note Family</span>
+                            <div id="profile-family-filter" class="profile-filter-pill-grid"></div>
+                        </div>
+                    </div>
+
+                    <div class="profile-sidebar-actions">
+                        <button id="btn-reset-personality" class="btn-primary" type="button">Reset Personality</button>
+                    </div>
+                </aside>
+
+                <div class="profile-main">
+                    <div class="profile-hero-card glass-panel">
+                        <p class="profile-section-label">Account Overview</p>
+                        <div class="profile-hero-header">
+                            <div>
+                                <h1 id="profile-email-heading" class="profile-email-heading"></h1>
+                                <p id="profile-hero-copy" class="profile-hero-copy"></p>
+                            </div>
+                            <div id="profile-theme-chip" class="profile-theme-chip"></div>
+                        </div>
+
+                        <div class="profile-stat-grid">
+                            <div class="profile-stat-tile">
+                                <span class="profile-stat-label">Saved</span>
+                                <strong id="profile-stat-count" class="profile-stat-value">0</strong>
+                            </div>
+                            <div class="profile-stat-tile">
+                                <span class="profile-stat-label">Houses</span>
+                                <strong id="profile-stat-houses" class="profile-stat-value">0</strong>
+                            </div>
+                            <div class="profile-stat-tile">
+                                <span class="profile-stat-label">Families</span>
+                                <strong id="profile-stat-families" class="profile-stat-value">0</strong>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="profile-main-bar">
+                        <div>
+                            <p class="profile-section-label">Saved Fragrances</p>
+                            <h3 id="profile-results-title" class="profile-results-title"></h3>
+                        </div>
+                    </div>
+
+                    <div id="profile-fragrance-empty" class="profile-empty-state glass-panel" hidden></div>
+                    <div id="profile-fragrance-grid" class="profile-fragrance-grid"></div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- Auth Modal -->
+    <div id="auth-modal" class="modal-overlay">
+        <div class="glass-panel modal-content">
+            <button id="btn-close-modal" class="btn-close-modal">&times;</button>
+            <h2 id="auth-title">Create Your Profile</h2>
+            <p class="subtitle" id="auth-subtitle">Save your preferences to refine your bespoke recommendations.</p>
+            
+            <div class="auth-tabs" id="auth-tabs">
+                <button class="auth-tab active" data-tab="signup">Sign Up</button>
+                <button class="auth-tab" data-tab="login">Log In</button>
+            </div>
+
+            <form id="auth-form" class="auth-form mt-4">
+                <div class="input-block">
+                    <input type="email" id="auth-email" placeholder="Email Address" required>
+                </div>
+                <div class="input-block mt-3">
+                    <input type="password" id="auth-password" placeholder="Password" required>
+                </div>
+                <button type="submit" class="btn-primary mt-4" id="btn-auth-submit" style="width: 100%;">Create Account</button>
+            </form>
+
+            <div class="auth-divider mt-3">
+                <span>or</span>
+            </div>
+
+            <button class="btn-ghost mt-3" id="btn-auth-guest" style="width: 100%;">Continue as Guest</button>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="js/data.js"></script>
+    <script src="js/logic.js"></script>
+    <script src="js/app.js"></script>
+</body>
+</html>
