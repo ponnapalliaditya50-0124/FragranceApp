@@ -8,14 +8,17 @@ const state = {
     selectedAccords: [],       // ["Oriental", "Gourmand", ...]
     occasions: [],
     climates: [],
-    performance: 2, 
+    performance: 50,
     budget: 2,
     latestRecommendations: [],
     latestArchetype: null
 };
 
 const STORAGE_KEY = 'maison-daura-profile';
+const OFFLINE_AUTOCOMPLETE_COPY = 'Live search is unavailable offline. Use the starter picks below or type a fragrance manually.';
 
+// NOTE: authState is a client-side scaffold. isLoggedIn is not cryptographically
+// verified. Replace with JWT/session validation when the backend is implemented.
 const authState = {
     isLoggedIn: false,
     mode: 'signup',
@@ -23,6 +26,10 @@ const authState = {
     profileEmail: '',
     savedRecommendationIds: [],
     personalityTitle: ''
+};
+
+const appearanceState = {
+    mode: 'dark'
 };
 
 const VIEW_IDS = ['wizard-view', 'loading-view', 'results-view', 'profile-view'];
@@ -39,31 +46,187 @@ const profileFilters = {
     family: 'all'
 };
 
+let syncUsageIntentStepState = () => {};
+let clearUsageIntentStepTimers = () => {};
+
 // Wizard State
 let currentStep = 1;
 const totalSteps = 3;
 
 const engine = new OlfactoryEngine(fragranceDB, ARCHETYPES);
 
-document.addEventListener("DOMContentLoaded", () => {
-    hydrateAuthState();
-    syncActiveView();
-    initAuth();
-    initWizard();
-    initProfileView();
-    updateAuthUI();
+function isRecognizedArchetypeTitle(title) {
+    return Boolean(title && Object.prototype.hasOwnProperty.call(ARCHETYPES, title));
+}
+
+function getBackendIssueDetails(error) {
+    if (error && error.code === 'DB_NOT_SEEDED') {
+        return {
+            bannerTitle: 'Database Setup Required',
+            bannerCopy: 'The backend is running, but the fragrance catalog has not been seeded yet. Add data.csv to Fragrance App Backend/scripts/ and run npm run seed.',
+            resultsTitle: 'Database Setup Required',
+            resultsCopy: 'The backend is reachable, but the fragrance catalog is still empty. Add data.csv to Fragrance App Backend/scripts/ and run npm run seed, then try again.',
+            autocompleteCopy: 'Search will work after the fragrance database is seeded.'
+        };
+    }
+
+    return {
+        bannerTitle: 'Backend Connection Required',
+        bannerCopy: 'Live search, saved profile hydration, and recommendations need the local backend running on http://localhost:3001.',
+        resultsTitle: 'Backend Connection Required',
+        resultsCopy: 'Recommendations are unavailable until the local backend is running on http://localhost:3001.',
+        autocompleteCopy: 'Search is unavailable until the backend is running.'
+    };
+}
+
+function getEmptyRecommendationIssue() {
+    return {
+        resultsTitle: 'No Recommendations Available',
+        resultsCopy: 'The backend responded, but no recommendations were returned. Reseed or enrich the catalog and try again.'
+    };
+}
+
+function getOfflineCollectionCopy(missingCount) {
+    return missingCount === 1
+        ? '1 saved fragrance is unavailable in offline mode. Start the local backend to restore your full collection.'
+        : `${missingCount} saved fragrances are unavailable in offline mode. Start the local backend to restore your full collection.`;
+}
+
+function renderBackendStatus(issue = null) {
+    const panel = document.getElementById('backend-status-panel');
+    const title = document.getElementById('backend-status-title');
+    const copy = document.getElementById('backend-status-copy');
+
+    if (!panel || !title || !copy) return;
+
+    if (!issue) {
+        panel.hidden = true;
+        title.innerText = '';
+        copy.innerText = '';
+        return;
+    }
+
+    title.innerText = issue.bannerTitle;
+    copy.innerText = issue.bannerCopy;
+    panel.hidden = false;
+}
+
+function clearBackendStatus() {
+    renderBackendStatus(null);
+}
+
+function showBackendStatus(error) {
+    const issue = getBackendIssueDetails(error);
+    renderBackendStatus(issue);
+    return issue;
+}
+
+function isDisplayNumber(value) {
+    return Number.isFinite(value);
+}
+
+function formatPriceTier(value) {
+    return Number.isInteger(value) && value > 0 ? '$'.repeat(value) : '—';
+}
+
+function formatMetricScore(value) {
+    if (!isDisplayNumber(value)) return 'Unavailable';
+    return `${Number(value.toFixed(1))}/10`;
+}
+
+function getMetricBarWidth(value) {
+    if (!isDisplayNumber(value)) return '0%';
+    return `${Math.max(0, Math.min(10, value)) * 10}%`;
+}
+
+function getBlindBuyBadge(value) {
+    if (!isDisplayNumber(value)) {
+        return {
+            className: 'bb-unknown',
+            label: 'Blind Buy Data',
+            value: 'Unavailable'
+        };
+    }
+
+    const roundedValue = Math.round(value);
+    const isSafe = roundedValue >= 70;
+    return {
+        className: isSafe ? 'bb-safe' : 'bb-risky',
+        label: isSafe ? 'Safe Blind Buy' : 'Risky Blind Buy',
+        value: `${roundedValue}%`
+    };
+}
+
+function runStartupStep(label, callback) {
+    try {
+        return callback();
+    } catch (error) {
+        console.error(`Startup step failed: ${label}.`, error);
+        return null;
+    }
+}
+
+document.addEventListener("DOMContentLoaded", async () => {
+    await hydrateAuthState();
+
+    runStartupStep('initAppearanceControls', initAppearanceControls);
+    applyTheme();
+
+    try {
+        await loadFragranceCatalog();
+    } catch (error) {
+        loadFallbackFragranceCatalog();
+        console.warn('Using the bundled fallback fragrance catalog until the local backend is available.', error);
+    }
+
+    engine.database = fragranceDB;
+    clearBackendStatus();
+
+    runStartupStep('syncActiveView', syncActiveView);
+    runStartupStep('initAuth', initAuth);
+    runStartupStep('initWizard', initWizard);
+    runStartupStep('initProfileView', initProfileView);
+    runStartupStep('updateAuthUI', updateAuthUI);
     applyTheme();
 });
 
 function initWizard() {
-    console.log("Wizard initialized.");
-    
     // Step 1: Favorites with Autocomplete
     const favInput = document.getElementById('fav-input');
     const btnAddFav = document.getElementById('btn-add-fav');
     const favTags = document.getElementById('fav-tags');
     const acDropdown = document.getElementById('autocomplete-dropdown');
+    const autocompleteHelper = document.getElementById('autocomplete-helper');
+    const starterGrid = document.getElementById('starter-grid');
     let acIndex = -1; // keyboard navigation index
+    let autocompleteTimer = null;
+    let autocompleteRequestId = 0;
+
+    const getStarterFavoriteValue = (pick) => `${pick.name} — ${pick.house}`;
+
+    const setAutocompleteHelper = (message = '') => {
+        if (!autocompleteHelper) return;
+
+        autocompleteHelper.innerText = message;
+        autocompleteHelper.hidden = !message;
+    };
+
+    const cancelPendingAutocomplete = () => {
+        autocompleteRequestId += 1;
+        if (autocompleteTimer) {
+            clearTimeout(autocompleteTimer);
+            autocompleteTimer = null;
+        }
+    };
+
+    const syncStarterCards = () => {
+        if (!starterGrid) return;
+
+        starterGrid.querySelectorAll('.starter-card').forEach(card => {
+            const favoriteValue = card.getAttribute('data-favorite');
+            card.classList.toggle('picked', state.favorites.includes(favoriteValue));
+        });
+    };
 
     const addFav = (val) => {
         const text = (val || favInput.value).trim();
@@ -71,6 +234,7 @@ function initWizard() {
             state.favorites.push(text);
             renderFavTags();
             favInput.value = '';
+            cancelPendingAutocomplete();
             hideDropdown();
         }
     };
@@ -80,14 +244,15 @@ function initWizard() {
             state.favorites = state.favorites.filter(i => i !== item);
             renderFavTags();
         });
+        syncStarterCards();
     };
 
-    const showDropdown = (matches) => {
+    const showDropdown = (matches, emptyMessage = 'No matches — press Enter to add custom entry') => {
         acDropdown.innerHTML = '';
         acIndex = -1;
 
         if (matches.length === 0) {
-            acDropdown.innerHTML = '<div class="ac-no-results">No matches — press Enter to add custom entry</div>';
+            acDropdown.innerHTML = `<div class="ac-no-results">${emptyMessage}</div>`;
             acDropdown.classList.add('visible');
             return;
         }
@@ -119,15 +284,51 @@ function initWizard() {
         acDropdown.querySelectorAll('.ac-item').forEach(el => el.classList.remove('ac-active'));
     };
 
+    if (isUsingFallbackCatalog()) {
+        favInput.placeholder = 'Use starter picks below or type a fragrance manually';
+        favInput.setAttribute('aria-describedby', 'autocomplete-helper');
+        setAutocompleteHelper(OFFLINE_AUTOCOMPLETE_COPY);
+    } else {
+        favInput.removeAttribute('aria-describedby');
+        setAutocompleteHelper('');
+    }
+
     favInput.addEventListener('input', () => {
-        const query = favInput.value.trim().toLowerCase();
-        if (query.length < 1) { hideDropdown(); return; }
+        const query = favInput.value.trim();
+        cancelPendingAutocomplete();
 
-        const matches = FRAGRANCE_SUGGESTIONS.filter(s =>
-            s.toLowerCase().includes(query) && !state.favorites.includes(s)
-        ).slice(0, 8); // cap at 8 for UX
+        if (isUsingFallbackCatalog()) {
+            hideDropdown();
+            setAutocompleteHelper(OFFLINE_AUTOCOMPLETE_COPY);
+            return;
+        }
 
-        showDropdown(matches);
+        if (query.length < 2) {
+            hideDropdown();
+            return;
+        }
+
+        const requestId = autocompleteRequestId;
+        autocompleteTimer = setTimeout(async () => {
+            try {
+                const matches = (await fetchFragranceSuggestions(query))
+                    .filter(item => !state.favorites.includes(item))
+                    .slice(0, 8);
+
+                if (requestId !== autocompleteRequestId) return;
+                clearBackendStatus();
+                showDropdown(matches);
+            } catch (error) {
+                if (requestId !== autocompleteRequestId) return;
+                console.warn('Unable to load fragrance suggestions.', error);
+                const issue = showBackendStatus(error);
+                showDropdown([], issue.autocompleteCopy);
+            } finally {
+                if (requestId === autocompleteRequestId) {
+                    autocompleteTimer = null;
+                }
+            }
+        }, 300);
     });
 
     favInput.addEventListener('keydown', (e) => {
@@ -165,25 +366,33 @@ function initWizard() {
 
     // Close dropdown on outside click
     document.addEventListener('click', (e) => {
-        if (!e.target.closest('.autocomplete-wrapper')) hideDropdown();
+        if (!e.target.closest('.autocomplete-wrapper')) {
+            cancelPendingAutocomplete();
+            hideDropdown();
+        }
     });
 
     // Start Here: Populate starter grid
-    const starterGrid = document.getElementById('starter-grid');
     STARTER_PICKS.forEach(pick => {
         const card = document.createElement('div');
+        const fullName = getStarterFavoriteValue(pick);
+
         card.className = 'starter-card';
+        card.setAttribute('data-favorite', fullName);
         card.innerHTML = `
             <span class="starter-name">${pick.name}</span>
             <span class="starter-house">${pick.house}</span>
             <span class="starter-vibe">${pick.vibe}</span>
         `;
         card.addEventListener('click', () => {
-            const fullName = `${pick.name} — ${pick.house}`;
-            if (!state.favorites.includes(fullName)) {
-                state.favorites.push(fullName);
+            if (card.classList.contains('picked')) {
+                state.favorites = state.favorites.filter(f => f !== fullName);
+                card.classList.remove('picked');
                 renderFavTags();
+            } else {
+                state.favorites.push(fullName);
                 card.classList.add('picked');
+                renderFavTags();
             }
         });
         starterGrid.appendChild(card);
@@ -340,24 +549,102 @@ function initWizard() {
     });
 
     // Step 3: Selection grids and Reveal Logic
+    const occasionSection = document.getElementById('occasion-section');
+    const climateSection = document.getElementById('climate-section');
     const perfSection = document.getElementById('perf-section');
     const budgetSection = document.getElementById('budget-section');
+    let sliderInteracted = false;
+    let usageIntentRevealTimers = [];
 
-    const revealPerf = () => {
-        if (perfSection && !perfSection.classList.contains('revealed')) {
-            perfSection.classList.add('revealed');
-            // gently scroll down a bit
-            setTimeout(() => {
-                const step3 = document.getElementById('step-3');
-                if(step3) step3.scrollBy({ top: 150, behavior: 'smooth' });
-            }, 300);
+    const clearUsageIntentRevealTimers = () => {
+        usageIntentRevealTimers.forEach(timerId => window.clearTimeout(timerId));
+        usageIntentRevealTimers = [];
+        [occasionSection, climateSection, perfSection, budgetSection].forEach(section => {
+            if (section) {
+                section.dataset.revealScheduled = 'false';
+            }
+        });
+    };
+
+    const revealSection = (section, { scroll = false } = {}) => {
+        if (!section || section.classList.contains('revealed')) return;
+
+        section.dataset.revealScheduled = 'false';
+        section.classList.add('revealed');
+
+        if (scroll && currentStep === 3) {
+            window.setTimeout(() => {
+                section.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            }, 180);
         }
     };
 
-    // Tie reveal to textarea
+    const queueSectionReveal = (section, delay = 0) => {
+        if (!section || section.classList.contains('revealed') || section.dataset.revealScheduled === 'true') {
+            return;
+        }
+
+        if (delay <= 0) {
+            revealSection(section);
+            return;
+        }
+
+        section.dataset.revealScheduled = 'true';
+        const timerId = window.setTimeout(() => {
+            revealSection(section);
+            usageIntentRevealTimers = usageIntentRevealTimers.filter(id => id !== timerId);
+        }, delay);
+        usageIntentRevealTimers.push(timerId);
+    };
+
+    const revealUsageIntentSections = ({ immediate = false } = {}) => {
+        if (currentStep !== 3) return;
+
+        const baseDelay = immediate ? 0 : 120;
+        const staggerDelay = immediate ? 0 : 140;
+        const hasUsageInput = Boolean(
+            state.usageDescription.trim()
+            || state.occasions.length > 0
+            || state.climates.length > 0
+        );
+
+        queueSectionReveal(occasionSection, baseDelay);
+        queueSectionReveal(climateSection, baseDelay + staggerDelay);
+
+        if (hasUsageInput) {
+            if (immediate) {
+                revealSection(perfSection, { scroll: true });
+            } else {
+                queueSectionReveal(perfSection, baseDelay + (staggerDelay * 2));
+            }
+        }
+
+        if (sliderInteracted) {
+            if (immediate) {
+                revealSection(budgetSection, { scroll: true });
+            } else {
+                queueSectionReveal(budgetSection, baseDelay + (staggerDelay * 3));
+            }
+        }
+    };
+
+    const resetUsageIntentCascade = () => {
+        clearUsageIntentRevealTimers();
+        sliderInteracted = false;
+        [occasionSection, climateSection, perfSection, budgetSection].forEach(section => {
+            if (section) {
+                section.classList.remove('revealed');
+                section.dataset.revealScheduled = 'false';
+            }
+        });
+    };
+
+    syncUsageIntentStepState = revealUsageIntentSections;
+    clearUsageIntentStepTimers = clearUsageIntentRevealTimers;
+
     const usageDesc = document.getElementById('usage-description');
     if (usageDesc) {
-        usageDesc.addEventListener('input', revealPerf);
+        usageDesc.addEventListener('input', () => revealUsageIntentSections({ immediate: true }));
     }
 
     const bindSelectables = (containerId, stateArr) => {
@@ -373,10 +660,27 @@ function initWizard() {
                     const idx = stateArr.indexOf(val);
                     if (idx > -1) stateArr.splice(idx, 1);
                 }
-                revealPerf();
+                revealUsageIntentSections({ immediate: true });
             });
         });
     };
+
+    const populatePillGrid = (containerId, options, type) => {
+        const grid = document.getElementById(containerId);
+        if (!grid) return;
+
+        options.forEach(val => {
+            const pill = document.createElement('div');
+            pill.className = 'select-pill';
+            pill.setAttribute('data-type', type);
+            pill.setAttribute('data-val', val);
+            pill.textContent = val;
+            grid.appendChild(pill);
+        });
+    };
+
+    populatePillGrid('occasion-grid', OCCASION_OPTIONS, 'occ');
+    populatePillGrid('climate-grid', CLIMATE_OPTIONS, 'cli');
     bindSelectables('occasion-grid', state.occasions);
     bindSelectables('climate-grid', state.climates);
 
@@ -393,10 +697,10 @@ function initWizard() {
         { name: "Beast Mode", desc: "Room-filling, maximum projection." }
     ];
 
-    let sliderInteracted = false;
-    perfSlider.addEventListener('input', (e) => {
-        const val = parseInt(e.target.value);
+    perfSlider.addEventListener('input', (event) => {
+        const val = parseInt(event.target.value, 10);
         state.performance = val;
+        sliderInteracted = sliderInteracted || event.isTrusted;
         
         let zoneIndex = Math.floor(val / 20);
         if (zoneIndex >= 5) zoneIndex = 4; // handle exactly 100
@@ -405,21 +709,12 @@ function initWizard() {
         perfDesc.innerText = perfZones[zoneIndex].desc;
         
         const progress = val + '%';
-        perfSlider.style.background = `linear-gradient(to right, rgba(255,255,255,0.8) ${progress}, rgba(255,255,255,0.1) ${progress})`;
+        perfSlider.style.background = `linear-gradient(to right, var(--clr-bar-fill-end) ${progress}, var(--clr-slider-track) ${progress})`;
 
-        // Reveal the budget section when slider is moved
-        if (sliderInteracted && budgetSection && !budgetSection.classList.contains('revealed')) {
-            budgetSection.classList.add('revealed');
-            setTimeout(() => {
-                const step3 = document.getElementById('step-3');
-                if(step3) step3.scrollBy({ top: 200, behavior: 'smooth' });
-            }, 300);
+        if (sliderInteracted) {
+            revealSection(budgetSection, { scroll: true });
         }
     });
-
-    // Mark slider as ready for interaction (prevents the initial dispatch from revealing budget)
-    perfSlider.addEventListener('mousedown', () => sliderInteracted = true);
-    perfSlider.addEventListener('touchstart', () => sliderInteracted = true);
 
     // Initialize the slider label immediately
     perfSlider.dispatchEvent(new Event('input'));
@@ -440,7 +735,62 @@ function initWizard() {
     // Controls
     document.getElementById('btn-next').addEventListener('click', nextStep);
     document.getElementById('btn-prev').addEventListener('click', prevStep);
-    document.getElementById('btn-restart').addEventListener('click', () => window.location.reload());
+    document.getElementById('btn-restart').addEventListener('click', () => {
+        // Reset wizard state
+        state.favorites = [];
+        state.scentDescription = '';
+        state.usageDescription = '';
+        state.selectedFamilies = [];
+        state.selectedNotes = [];
+        state.selectedAccords = [];
+        state.occasions = [];
+        state.climates = [];
+        state.performance = 50;
+        state.budget = 2;
+        state.latestRecommendations = [];
+        state.latestArchetype = null;
+
+        // Reset step
+        currentStep = 1;
+
+        // Clear UI selections
+        document.querySelectorAll('.select-pill.selected, .family-card.selected, .subnote-pill.selected, .budget-pill.selected').forEach(el => el.classList.remove('selected'));
+        document.querySelectorAll('.inner-subnotes.expanded').forEach(el => el.classList.remove('expanded'));
+        document.getElementById('fav-input').value = '';
+        document.getElementById('fav-tags').innerHTML = '';
+        document.getElementById('scent-description').value = '';
+        document.getElementById('usage-description').value = '';
+        document.getElementById('mic-status').textContent = '';
+        document.getElementById('mic-status-usage').textContent = '';
+        hideDropdown();
+
+        // Reset performance
+        perfSlider.value = '50';
+        perfSlider.dispatchEvent(new Event('input'));
+
+        // Re-default budget
+        const defaultPill = budgetGrid.querySelector('[data-val="2"]');
+        if (defaultPill) defaultPill.classList.add('selected');
+
+        // Reset cascading reveals
+        resetUsageIntentCascade();
+
+        // Reset loader text
+        const loaderText = document.getElementById('loader-text');
+        if (loaderText) {
+            loaderText.innerText = 'Extracting scent markers...';
+            loaderText.style.opacity = '1';
+        }
+
+        renderFavTags();
+
+        // Navigate back
+        setActiveView('wizard-view');
+        updateWizardUI();
+        applyTheme();
+    });
+
+    updateWizardUI();
 }
 
 function syncActiveView() {
@@ -465,63 +815,123 @@ function getThemeClass(archetypeTitle) {
         : '';
 }
 
+function getAppearanceMode() {
+    return appearanceState.mode === 'light' ? 'light' : 'dark';
+}
+
+function getAppearanceLabel() {
+    return getAppearanceMode() === 'light' ? 'Switch to Dark' : 'Switch to Light';
+}
+
+function getCurrentAppearanceName() {
+    return getAppearanceMode() === 'light' ? 'Light Mode' : 'Dark Mode';
+}
+
+function getAppearanceClass() {
+    return `appearance-${getAppearanceMode()}`;
+}
+
+function updateAppearanceToggleUI() {
+    const toggle = document.getElementById('btn-appearance-toggle');
+    const label = document.getElementById('appearance-toggle-label');
+    const isLightMode = getAppearanceMode() === 'light';
+
+    if (!toggle || !label) return;
+
+    label.innerText = getAppearanceLabel();
+    toggle.setAttribute('aria-pressed', String(isLightMode));
+    toggle.setAttribute('aria-label', getAppearanceLabel());
+}
+
 function getEffectiveThemeTitle() {
-    if (authState.isLoggedIn && authState.personalityTitle) {
+    if (authState.isLoggedIn && isRecognizedArchetypeTitle(authState.personalityTitle)) {
         return authState.personalityTitle;
     }
 
-    return state.latestArchetype && state.latestArchetype.title
+    return state.latestArchetype && isRecognizedArchetypeTitle(state.latestArchetype.title)
         ? state.latestArchetype.title
         : '';
 }
 
 function applyTheme() {
-    document.body.className = getThemeClass(getEffectiveThemeTitle());
+    Array.from(document.body.classList)
+        .filter(className => className.startsWith('theme-') || className.startsWith('appearance-'))
+        .forEach(className => document.body.classList.remove(className));
+
+    const themeClass = getThemeClass(getEffectiveThemeTitle());
+    if (themeClass) {
+        document.body.classList.add(themeClass);
+    }
+
+    document.body.classList.add(getAppearanceClass());
+    document.body.dataset.appearance = getAppearanceMode();
+    document.body.dataset.theme = themeClass || '';
+    updateAppearanceToggleUI();
 }
 
-function hydrateAuthState() {
+async function loadAuthFromStorage() {
+    // TODO: Replace with API call when backend is ready
+    return JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+}
+
+async function saveAuthToStorage(data) {
+    // TODO: Replace with API call when backend is ready
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+}
+
+async function hydrateAuthState() {
     try {
-        const stored = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+        const stored = await loadAuthFromStorage();
         authState.isLoggedIn = Boolean(stored.isLoggedIn);
         authState.profileEmail = stored.profileEmail || '';
-        authState.personalityTitle = stored.personalityTitle || '';
+        authState.personalityTitle = isRecognizedArchetypeTitle(stored.personalityTitle)
+            ? stored.personalityTitle
+            : '';
         authState.savedRecommendationIds = Array.isArray(stored.savedRecommendationIds)
             ? stored.savedRecommendationIds
             : [];
+        appearanceState.mode = stored.appearanceMode === 'light' ? 'light' : 'dark';
     } catch (error) {
         console.warn('Unable to restore saved profile state.', error);
     }
 }
 
-function persistAuthState() {
+async function persistAuthState() {
     try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify({
+        await saveAuthToStorage({
             isLoggedIn: authState.isLoggedIn,
             profileEmail: authState.profileEmail,
             savedRecommendationIds: authState.savedRecommendationIds,
-            personalityTitle: authState.personalityTitle
-        }));
+            personalityTitle: authState.personalityTitle,
+            appearanceMode: getAppearanceMode()
+        });
     } catch (error) {
         console.warn('Unable to persist profile state.', error);
     }
 }
 
 function syncStoredPersonality(archetype) {
-    if (!authState.isLoggedIn || !archetype || !archetype.title) return;
+    if (!authState.isLoggedIn || !archetype || !isRecognizedArchetypeTitle(archetype.title)) return;
 
     authState.personalityTitle = archetype.title;
-    persistAuthState();
+    void persistAuthState();
 }
 
 function findFragranceById(id) {
     return engine.database.find(fragrance => fragrance.id === id);
 }
 
-function getSavedFragrances() {
-    return authState.savedRecommendationIds
+function getSavedFragranceSnapshot() {
+    const availableFragrances = authState.savedRecommendationIds
         .map(findFragranceById)
         .filter(Boolean)
         .sort((a, b) => a.house.localeCompare(b.house) || a.name.localeCompare(b.name));
+
+    return {
+        totalSavedCount: authState.savedRecommendationIds.length,
+        missingCount: Math.max(0, authState.savedRecommendationIds.length - availableFragrances.length),
+        availableFragrances
+    };
 }
 
 function isRecommendationSaved(id) {
@@ -531,6 +941,10 @@ function isRecommendationSaved(id) {
 function getFamilyLabel(familyId) {
     const family = SCENT_FAMILIES.find(item => item.id === familyId);
     return family ? family.label : familyId;
+}
+
+function formatBlindBuyMetric(value) {
+    return isDisplayNumber(value) ? `${Math.round(value)}%` : 'Unavailable';
 }
 
 function resetProfileFilters() {
@@ -556,15 +970,21 @@ function renderProfilePanel() {
         return;
     }
 
-    const savedFragrances = getSavedFragrances();
+    const savedSummary = getSavedFragranceSnapshot();
+    const savedFragrances = savedSummary.availableFragrances;
     const savedCount = savedFragrances.length;
-    const personalityLabel = authState.personalityTitle || 'Awaiting personality';
+    const hasOfflineGap = isUsingFallbackCatalog() && savedSummary.missingCount > 0;
+    const personalityLabel = isRecognizedArchetypeTitle(authState.personalityTitle)
+        ? authState.personalityTitle
+        : 'Awaiting personality';
 
-    meta.innerText = `${savedCount} saved / ${personalityLabel}`;
-    empty.innerText = savedCount === 0
+    meta.innerText = hasOfflineGap
+        ? `${savedCount} available / ${personalityLabel}`
+        : `${savedCount} saved / ${personalityLabel}`;
+    empty.innerText = savedSummary.totalSavedCount === 0
         ? 'Add any recommendation below and it will appear here in your saved profile.'
-        : '';
-    empty.hidden = savedCount !== 0;
+        : (hasOfflineGap ? getOfflineCollectionCopy(savedSummary.missingCount) : '');
+    empty.hidden = !empty.innerText;
 
     grid.innerHTML = savedFragrances.map(frag => `
         <div class="saved-fragrance-card">
@@ -635,7 +1055,7 @@ function getFilteredSavedFragrances(savedFragrances) {
 }
 
 function buildProfileFragranceCard(frag) {
-    const tierStr = Array(frag.priceTier).fill('$').join('');
+    const tierStr = formatPriceTier(frag.priceTier);
     const familyTags = (frag.noteFamilies || [])
         .map(familyId => `<span class="profile-fragrance-chip">${getFamilyLabel(familyId)}</span>`)
         .join('');
@@ -663,28 +1083,45 @@ function buildProfileFragranceCard(frag) {
             <p class="profile-fragrance-copy">Top notes: ${topNotes || 'Unavailable'}.</p>
 
             <div class="profile-fragrance-metrics">
-                <span>Blind Buy ${frag.blindBuyScore}%</span>
-                <span>Longevity ${frag.longevityScore}/10</span>
-                <span>Sillage ${frag.sillageScore}/10</span>
+                <span>Blind Buy ${formatBlindBuyMetric(frag.blindBuyScore)}</span>
+                <span>Longevity ${formatMetricScore(frag.longevityScore)}</span>
+                <span>Sillage ${formatMetricScore(frag.sillageScore)}</span>
             </div>
         </article>
     `;
 }
 
-function renderProfileCollection(savedFragrances) {
+function renderProfileCollection(savedSummary) {
     const grid = document.getElementById('profile-fragrance-grid');
     const emptyState = document.getElementById('profile-fragrance-empty');
     const resultsTitle = document.getElementById('profile-results-title');
+    const resultsNote = document.getElementById('profile-results-note');
 
-    if (!grid || !emptyState || !resultsTitle) return;
+    if (!grid || !emptyState || !resultsTitle || !resultsNote) return;
 
+    const savedFragrances = savedSummary.availableFragrances;
     const filteredFragrances = getFilteredSavedFragrances(savedFragrances);
+    const hasOfflineGap = isUsingFallbackCatalog() && savedSummary.missingCount > 0;
 
-    if (savedFragrances.length === 0) {
+    resultsNote.innerText = hasOfflineGap ? getOfflineCollectionCopy(savedSummary.missingCount) : '';
+    resultsNote.hidden = !hasOfflineGap;
+
+    if (savedSummary.totalSavedCount === 0) {
         resultsTitle.innerText = 'No saved fragrances yet';
         emptyState.innerHTML = `
             <h3 class="profile-empty-title">Your profile is ready for discoveries</h3>
             <p class="profile-empty-copy">Save recommendations from the results page and your collection will appear here.</p>
+        `;
+        emptyState.hidden = false;
+        grid.innerHTML = '';
+        return;
+    }
+
+    if (savedFragrances.length === 0 && hasOfflineGap) {
+        resultsTitle.innerText = 'Offline collection preview';
+        emptyState.innerHTML = `
+            <h3 class="profile-empty-title">Your saved collection needs the backend for the full view</h3>
+            <p class="profile-empty-copy">${getOfflineCollectionCopy(savedSummary.missingCount)}</p>
         `;
         emptyState.hidden = false;
         grid.innerHTML = '';
@@ -711,8 +1148,11 @@ function renderProfileCollection(savedFragrances) {
 }
 
 function renderProfileView() {
-    const personalityTitle = authState.personalityTitle || '';
-    const savedFragrances = getSavedFragrances();
+    const personalityTitle = isRecognizedArchetypeTitle(authState.personalityTitle)
+        ? authState.personalityTitle
+        : '';
+    const savedSummary = getSavedFragranceSnapshot();
+    const savedFragrances = savedSummary.availableFragrances;
     const housesCount = new Set(savedFragrances.map(frag => frag.house)).size;
     const familyCount = new Set(savedFragrances.flatMap(frag => frag.noteFamilies || [])).size;
     const profileTitle = document.getElementById('profile-personality-title');
@@ -736,20 +1176,20 @@ function renderProfileView() {
         ? ARCHETYPES[personalityTitle]
         : 'Run the profiling experience again to assign a fragrance personality and personalize the full site theme.';
     profileMeta.innerText = personalityTitle
-        ? 'Your saved account theme and profile page are tuned to this personality.'
-        : 'You are signed in, but your profile is currently using the default palette.';
+        ? `Your saved account theme and profile page are tuned to this personality in ${getCurrentAppearanceName().toLowerCase()}.`
+        : `You are signed in, and your profile is currently using the default palette in ${getCurrentAppearanceName().toLowerCase()}.`;
     profileEmailHeading.innerText = authState.profileEmail || 'Signed in profile';
     profileHeroCopy.innerText = personalityTitle
         ? `Your collection and interface are currently keyed to ${personalityTitle}.`
         : 'Build your saved collection now, then reset and re-run profiling whenever you want a new personality read.';
     profileThemeChip.innerText = personalityTitle || 'Default Palette';
-    profileStatCount.innerText = String(savedFragrances.length);
+    profileStatCount.innerText = String(savedSummary.availableFragrances.length);
     profileStatHouses.innerText = String(housesCount);
     profileStatFamilies.innerText = String(familyCount);
     resetButton.innerText = personalityTitle ? 'Reset Personality' : 'Discover Personality';
 
     populateProfileFilterControls(savedFragrances);
-    renderProfileCollection(savedFragrances);
+    renderProfileCollection(savedSummary);
 }
 
 function updateAuthUI() {
@@ -776,6 +1216,28 @@ function updateAuthUI() {
     }
 
     applyTheme();
+}
+
+function handleAppearanceToggle() {
+    appearanceState.mode = getAppearanceMode() === 'light' ? 'dark' : 'light';
+    void persistAuthState();
+    applyTheme();
+
+    if (authState.isLoggedIn && viewState.activeViewId === 'profile-view') {
+        renderProfileView();
+    }
+}
+
+function initAppearanceControls() {
+    const toggle = document.getElementById('btn-appearance-toggle');
+    if (!toggle) return;
+
+    if (!toggle.__appearanceBound) {
+        toggle.addEventListener('click', handleAppearanceToggle);
+        toggle.__appearanceBound = true;
+    }
+
+    updateAppearanceToggleUI();
 }
 
 function openProfileView() {
@@ -806,7 +1268,7 @@ function logoutAccount() {
     authState.isLoggedIn = false;
     authState.pendingRecommendationId = null;
     authState.mode = 'login';
-    persistAuthState();
+    void persistAuthState();
 
     if (viewState.activeViewId === 'profile-view') {
         closeProfileView();
@@ -816,18 +1278,27 @@ function logoutAccount() {
 }
 
 function resetPersonality() {
-    if (!window.confirm('Reset your fragrance personality and restart the profiling experience?')) {
-        return;
-    }
+    const confirmed = window.confirm('This will clear your saved fragrance personality. Your saved fragrances will remain. Are you sure?');
+    if (!confirmed) return;
 
     authState.personalityTitle = '';
-    persistAuthState();
-    window.location.reload();
+    state.latestArchetype = null;
+    void persistAuthState();
+    updateAuthUI();
 }
 
 function setAuthMode(mode) {
     authState.mode = mode === 'login' ? 'login' : 'signup';
+    setAuthError('');
     updateAuthModalContent();
+}
+
+function setAuthError(message = '') {
+    const authError = document.getElementById('auth-error');
+    if (!authError) return;
+
+    authError.textContent = message;
+    authError.style.display = message ? 'block' : 'none';
 }
 
 function updateAuthModalContent() {
@@ -835,6 +1306,8 @@ function updateAuthModalContent() {
     const authSubtitle = document.getElementById('auth-subtitle');
     const btnSubmit = document.getElementById('btn-auth-submit');
     const btnGuest = document.getElementById('btn-auth-guest');
+    const confirmBlock = document.getElementById('auth-confirm-block');
+    const confirmInput = document.getElementById('auth-confirm');
     const authTabs = document.querySelectorAll('.auth-tab');
     const pendingRecommendation = findFragranceById(authState.pendingRecommendationId);
 
@@ -842,6 +1315,17 @@ function updateAuthModalContent() {
         const isActive = tab.getAttribute('data-tab') === authState.mode;
         tab.classList.toggle('active', isActive);
     });
+
+    if (confirmBlock) {
+        confirmBlock.classList.toggle('visible', authState.mode === 'signup');
+    }
+
+    if (confirmInput) {
+        confirmInput.required = authState.mode === 'signup';
+        if (authState.mode !== 'signup') {
+            confirmInput.value = '';
+        }
+    }
 
     if (!authTitle || !authSubtitle || !btnSubmit || !btnGuest) return;
 
@@ -883,6 +1367,8 @@ function showAuthModal(options = {}) {
         authForm.reset();
     }
 
+    setAuthError('');
+
     if (authEmail && authState.profileEmail) {
         authEmail.value = authState.profileEmail;
     }
@@ -901,6 +1387,8 @@ function hideAuthModal() {
     if (authForm) {
         authForm.reset();
     }
+
+    setAuthError('');
 
     if (modal) {
         modal.classList.remove('active');
@@ -924,7 +1412,7 @@ function saveRecommendationToProfile(recommendationId) {
         return false;
     }
 
-    if (state.latestArchetype && state.latestArchetype.title) {
+    if (state.latestArchetype && isRecognizedArchetypeTitle(state.latestArchetype.title)) {
         authState.personalityTitle = state.latestArchetype.title;
     }
 
@@ -932,7 +1420,7 @@ function saveRecommendationToProfile(recommendationId) {
         authState.savedRecommendationIds.push(recommendationId);
     }
 
-    persistAuthState();
+    void persistAuthState();
     updateAuthUI();
     return true;
 }
@@ -945,6 +1433,8 @@ function initAuth() {
     const btnGuest = document.getElementById('btn-auth-guest');
     const btnCloseModal = document.getElementById('btn-close-modal');
     const authEmail = document.getElementById('auth-email');
+    const authPassword = document.getElementById('auth-password');
+    const authConfirm = document.getElementById('auth-confirm');
 
     if (btnTopLogin) {
         btnTopLogin.addEventListener('click', () => {
@@ -980,8 +1470,21 @@ function initAuth() {
     }
 
     if (authForm) {
+        authForm.addEventListener('input', () => setAuthError(''));
+
         authForm.addEventListener('submit', (event) => {
             event.preventDefault();
+            setAuthError('');
+
+            if (authState.mode === 'signup') {
+                const password = authPassword ? authPassword.value : '';
+                const confirm = authConfirm ? authConfirm.value : '';
+
+                if (password !== confirm) {
+                    setAuthError('Passwords do not match.');
+                    return;
+                }
+            }
 
             const pendingRecommendationId = authState.pendingRecommendationId;
             authState.isLoggedIn = true;
@@ -989,11 +1492,11 @@ function initAuth() {
                 ? authEmail.value.trim()
                 : authState.profileEmail;
 
-            if (state.latestArchetype && state.latestArchetype.title) {
+            if (state.latestArchetype && isRecognizedArchetypeTitle(state.latestArchetype.title)) {
                 authState.personalityTitle = state.latestArchetype.title;
             }
 
-            persistAuthState();
+            void persistAuthState();
             hideAuthModal();
 
             if (pendingRecommendationId) {
@@ -1082,40 +1585,87 @@ function renderPills(container, items, onRemove) {
 
 function updateProgress() {
     const progress = (currentStep / totalSteps) * 100;
-    document.getElementById('wizard-progress').style.width = `${progress}%`;
+    const progressBar = document.getElementById('wizard-progress');
+
+    if (progressBar) {
+        progressBar.style.width = `${progress}%`;
+    }
+}
+
+function updateWizardUI() {
+    document.querySelectorAll('.wizard-step').forEach((step, index) => {
+        step.classList.toggle('active', index + 1 === currentStep);
+    });
+
+    const btnPrev = document.getElementById('btn-prev');
+    const btnNext = document.getElementById('btn-next');
+
+    if (btnPrev) {
+        btnPrev.style.visibility = currentStep === 1 ? 'hidden' : 'visible';
+    }
+
+    if (btnNext) {
+        btnNext.innerText = currentStep === totalSteps ? 'Reveal My DNA' : 'Next Step';
+    }
+
+    if (currentStep === 3) {
+        syncUsageIntentStepState();
+    } else {
+        clearUsageIntentStepTimers();
+    }
+
+    updateProgress();
 }
 
 function nextStep() {
     if (currentStep < totalSteps) {
-        document.getElementById(`step-${currentStep}`).classList.remove('active');
         currentStep++;
-        document.getElementById(`step-${currentStep}`).classList.add('active');
-        
-        document.getElementById('btn-prev').style.visibility = 'visible';
-        if (currentStep === totalSteps) {
-            document.getElementById('btn-next').innerText = "Reveal My DNA";
-        }
-        updateProgress();
+        updateWizardUI();
     } else {
-        processResults();
+        void processResults();
     }
 }
 
 function prevStep() {
     if (currentStep > 1) {
-        document.getElementById(`step-${currentStep}`).classList.remove('active');
         currentStep--;
-        document.getElementById(`step-${currentStep}`).classList.add('active');
-        
-        document.getElementById('btn-next').innerText = "Next Step";
-        if (currentStep === 1) {
-            document.getElementById('btn-prev').style.visibility = 'hidden';
-        }
-        updateProgress();
+        updateWizardUI();
     }
 }
 
-function processResults() {
+function showResultsError(issue) {
+    state.latestArchetype = null;
+    state.latestRecommendations = [];
+
+    setActiveView('results-view');
+    applyTheme();
+
+    const archetypeTitle = document.getElementById('archetype-title');
+    const archetypeDesc = document.getElementById('archetype-desc');
+    const resultsGrid = document.getElementById('results-grid');
+
+    if (archetypeTitle) {
+        archetypeTitle.innerText = issue.resultsTitle;
+    }
+
+    if (archetypeDesc) {
+        archetypeDesc.innerText = issue.resultsCopy;
+    }
+
+    renderProfilePanel();
+    renderProfileView();
+
+    if (resultsGrid) {
+        resultsGrid.innerHTML = `
+            <div class="glass-panel results-status-panel">
+                <h3 class="results-status-title">${issue.resultsTitle}</h3>
+                <p class="results-status-copy">${issue.resultsCopy}</p>
+            </div>
+        `;
+    }
+}
+
+async function processResults() {
     // Hide wizard, show loading
     setActiveView('loading-view');
 
@@ -1141,19 +1691,38 @@ function processResults() {
         }
     }, 850);
 
-    // Artificial delay for dramatic effect
-    setTimeout(() => {
+    if (loaderText) {
+        loaderText.innerText = loadingPhases[0];
+        loaderText.style.opacity = 1;
+    }
+
+    try {
+        const recommended = await engine.getRecommendations(state);
         clearInterval(interval);
-        const recommended = engine.calculateRecommendations(state);
+
+        if (!Array.isArray(recommended) || recommended.length === 0) {
+            showResultsError(getEmptyRecommendationIssue());
+            return;
+        }
+
         const archetype = engine.determineArchetype(recommended);
-        
         displayResults(archetype, recommended);
-    }, 3500);
+    } catch (error) {
+        clearInterval(interval);
+        console.error('Unable to fetch recommendations from the backend.', error);
+        showResultsError(getBackendIssueDetails(error));
+    } finally {
+        if (loaderText) {
+            loaderText.innerText = loadingPhases[0];
+            loaderText.style.opacity = 1;
+        }
+    }
 }
 
 function displayResults(archetype, topFrags) {
     state.latestArchetype = archetype;
     state.latestRecommendations = topFrags;
+    clearBackendStatus();
 
     if (authState.isLoggedIn) {
         syncStoredPersonality(archetype);
@@ -1178,9 +1747,10 @@ function renderResultsCards(topFrags) {
     grid.innerHTML = '';
 
     topFrags.forEach((frag, idx) => {
-        const tierStr = Array(frag.priceTier).fill('$').join('');
-        const bbClass = frag.blindBuyScore >= 70 ? 'bb-safe' : 'bb-risky';
-        const bbText = frag.blindBuyScore >= 70 ? 'Safe Blind Buy' : 'Risky Blind Buy';
+        const tierStr = formatPriceTier(frag.priceTier);
+        const blindBuyBadge = getBlindBuyBadge(frag.blindBuyScore);
+        const longevityWidth = getMetricBarWidth(frag.longevityScore);
+        const sillageWidth = getMetricBarWidth(frag.sillageScore);
         const isSaved = isRecommendationSaved(frag.id);
         const guestClass = authState.isLoggedIn ? '' : ' recommendation-locked';
         const interactiveAttrs = authState.isLoggedIn
@@ -1214,9 +1784,9 @@ function renderResultsCards(topFrags) {
         `;
         
         let dupeHtml = '';
-        if (frag.priceTier === 3 || frag.priceTier === 2) {
+        if (Number.isInteger(frag.priceTier) && (frag.priceTier === 3 || frag.priceTier === 2)) {
             // Find if there is a dupe in DB underneath this tier
-            const dupe = engine.database.find(d => d.dupeOf === frag.id && d.priceTier < frag.priceTier);
+            const dupe = engine.database.find(d => d.dupeOf === frag.id && Number.isFinite(d.priceTier) && d.priceTier < frag.priceTier);
             if (dupe) {
                 const similarityScore = 85 + ((frag.id.length + dupe.id.length + idx) % 10);
                 dupeHtml = `
@@ -1239,7 +1809,7 @@ function renderResultsCards(topFrags) {
 
         const html = `
             <div class="glass-panel dossier-card${guestClass}" data-fragrance-id="${frag.id}" style="animation-delay: ${idx * 0.25}s" ${interactiveAttrs}>
-                <div class="dossier-badge ${bbClass}">${bbText} • ${frag.blindBuyScore}%</div>
+                <div class="dossier-badge ${blindBuyBadge.className}">${blindBuyBadge.label} • ${blindBuyBadge.value}</div>
                 <div class="dossier-header">
                     <div class="d-info">
                         <div class="d-house">${frag.house}</div>
@@ -1254,17 +1824,17 @@ function renderResultsCards(topFrags) {
 
                 <div class="dossier-metrics">
                     <div class="d-metric">
-                        <div class="m-label">Longevity <span>${frag.longevityScore}/10</span></div>
+                        <div class="m-label">Longevity <span>${formatMetricScore(frag.longevityScore)}</span></div>
                         <div class="m-bar-container">
-                            <div class="m-bar-fill" style="width: ${frag.longevityScore*10}%"></div>
-                            <div class="m-bar-glow" style="left: ${frag.longevityScore*10}%"></div>
+                            <div class="m-bar-fill" style="width: ${longevityWidth}"></div>
+                            <div class="m-bar-glow" style="left: ${longevityWidth}"></div>
                         </div>
                     </div>
                     <div class="d-metric">
-                        <div class="m-label">Sillage <span>${frag.sillageScore}/10</span></div>
+                        <div class="m-label">Sillage <span>${formatMetricScore(frag.sillageScore)}</span></div>
                         <div class="m-bar-container">
-                            <div class="m-bar-fill" style="width: ${frag.sillageScore*10}%"></div>
-                            <div class="m-bar-glow" style="left: ${frag.sillageScore*10}%"></div>
+                            <div class="m-bar-fill" style="width: ${sillageWidth}"></div>
+                            <div class="m-bar-glow" style="left: ${sillageWidth}"></div>
                         </div>
                     </div>
                 </div>

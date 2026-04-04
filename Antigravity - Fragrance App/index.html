@@ -9,9 +9,17 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=Playfair+Display:ital,wght@0,400;0,600;0,800;1,400&display=swap" rel="stylesheet">
     <!-- CSS -->
-    <link rel="stylesheet" href="styles/style.css">
+    <link rel="stylesheet" href="styles/style.css?v=frontend-20260403-02">
 </head>
 <body>
+    <svg xmlns="http://www.w3.org/2000/svg" style="display:none">
+        <symbol id="icon-mic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+            <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+            <line x1="12" y1="19" x2="12" y2="23"/>
+            <line x1="8" y1="23" x2="16" y2="23"/>
+        </symbol>
+    </svg>
 
     <div class="background-effects">
         <div class="glow-orb orb-1"></div>
@@ -21,6 +29,12 @@
 
     <!-- Top Auth Link -->
     <div class="auth-top-nav">
+        <button id="btn-appearance-toggle" class="appearance-toggle" type="button" aria-pressed="false" aria-label="Switch to Light">
+            <span class="appearance-toggle-track" aria-hidden="true">
+                <span class="appearance-toggle-knob"></span>
+            </span>
+            <span id="appearance-toggle-label">Switch to Light</span>
+        </button>
         <button id="btn-top-login" class="btn-ghost btn-sm">Sign In</button>
     </div>
 
@@ -39,6 +53,11 @@
                     <div class="progress-fill" id="wizard-progress"></div>
                 </div>
 
+                <div id="backend-status-panel" class="backend-status-panel glass-panel" hidden>
+                    <h3 id="backend-status-title" class="backend-status-title"></h3>
+                    <p id="backend-status-copy" class="backend-status-copy"></p>
+                </div>
+
                 <!-- Step 1: Favorites -->
                 <div class="wizard-step active" id="step-1">
                     <h2>Current Favorites</h2>
@@ -52,6 +71,7 @@
                             <!-- JS populated suggestions -->
                         </div>
                     </div>
+                    <p id="autocomplete-helper" class="autocomplete-helper" hidden></p>
                     <div class="tag-container mt-2" id="fav-tags"></div>
 
                     <!-- Start Here Section -->
@@ -76,12 +96,7 @@
                             <textarea id="scent-description" rows="2"
                                 placeholder="Describe your ideal scent… warm and smoky? Fresh and clean? Like a walk through a cedar forest?"></textarea>
                             <button class="mic-btn" id="btn-mic" title="Speak your preference" type="button">
-                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                                    <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
-                                    <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
-                                    <line x1="12" y1="19" x2="12" y2="23"/>
-                                    <line x1="8" y1="23" x2="16" y2="23"/>
-                                </svg>
+                                <svg width="18" height="18"><use href="#icon-mic"/></svg>
                             </button>
                         </div>
                         <div class="mic-status" id="mic-status"></div>
@@ -111,44 +126,26 @@
                             <textarea id="usage-description" rows="2"
                                 placeholder="E.g., I want something for a summer beach vacation, or a cozy evening by the fire."></textarea>
                             <button class="mic-btn" id="btn-mic-usage" title="Speak your usage intent" type="button">
-                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                                    <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
-                                    <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
-                                    <line x1="12" y1="19" x2="12" y2="23"/>
-                                    <line x1="8" y1="23" x2="16" y2="23"/>
-                                </svg>
+                                <svg width="18" height="18"><use href="#icon-mic"/></svg>
                             </button>
                         </div>
                         <div class="mic-status" id="mic-status-usage"></div>
                     </div>
 
-                    <h4 class="sub-heading mt-4">Occasion</h4>
-                    <div class="selectable-grid" id="occasion-grid">
-                        <div class="select-pill" data-type="occ" data-val="Office">Office</div>
-                        <div class="select-pill" data-type="occ" data-val="Casual">Casual</div>
-                        <div class="select-pill" data-type="occ" data-val="Date Night">Date Night</div>
-                        <div class="select-pill" data-type="occ" data-val="Clubbing">Clubbing</div>
-                        <div class="select-pill" data-type="occ" data-val="Intimate">Intimate</div>
-                        <div class="select-pill" data-type="occ" data-val="Formal/Event">Formal/Event</div>
-                        <div class="select-pill" data-type="occ" data-val="Gym/Active">Gym/Active</div>
-                        <div class="select-pill" data-type="occ" data-val="Bedtime/Relaxing">Bedtime/Relaxing</div>
-                        <div class="select-pill" data-type="occ" data-val="Vacation/Holiday">Vacation/Holiday</div>
-                        <div class="select-pill" data-type="occ" data-val="Everyday/Signature">Everyday/Signature</div>
+                    <div id="occasion-section" class="cascading-section">
+                        <h4 class="sub-heading mt-4">Occasion</h4>
+                        <div class="selectable-grid" id="occasion-grid"></div>
                     </div>
 
-                    <h4 class="sub-heading mt-4">Climate</h4>
-                    <div class="selectable-grid" id="climate-grid">
-                        <div class="select-pill" data-type="cli" data-val="Hot & Humid">Hot & Humid</div>
-                        <div class="select-pill" data-type="cli" data-val="Dry & Desert">Dry & Desert</div>
-                        <div class="select-pill" data-type="cli" data-val="Temperate">Temperate</div>
-                        <div class="select-pill" data-type="cli" data-val="Cold & Crisp">Cold & Crisp</div>
-                        <div class="select-pill" data-type="cli" data-val="Tropical">Tropical</div>
+                    <div id="climate-section" class="cascading-section">
+                        <h4 class="sub-heading mt-4">Climate</h4>
+                        <div class="selectable-grid" id="climate-grid"></div>
                     </div>
 
                     <div id="perf-section" class="cascading-section">
                         <h4 class="sub-heading mt-4">Desired Performance</h4>
                         <div class="performance-wrapper mt-2">
-                            <div class="perf-text-area" style="display: flex; flex-direction: column; gap: 0.2rem; align-items: center; text-align: center; margin-bottom: 1.5rem;">
+                            <div class="perf-text-area">
                                 <span class="perf-label gold-text" id="perf-label" style="font-size: 1.4rem; font-family: var(--font-heading); margin: 0;">Moderate Trail</span>
                                 <span class="perf-desc" id="perf-desc" style="color: var(--clr-text-secondary); font-size: 0.8rem; font-weight: 300;">Noticeable, balanced sillage that leaves a gentle trail.</span>
                             </div>
@@ -315,6 +312,7 @@
                         <div>
                             <p class="profile-section-label">Saved Fragrances</p>
                             <h3 id="profile-results-title" class="profile-results-title"></h3>
+                            <p id="profile-results-note" class="profile-results-note" hidden></p>
                         </div>
                     </div>
 
@@ -344,7 +342,11 @@
                 <div class="input-block mt-3">
                     <input type="password" id="auth-password" placeholder="Password" required>
                 </div>
+                <div class="input-block mt-3" id="auth-confirm-block">
+                    <input type="password" id="auth-confirm" placeholder="Confirm Password">
+                </div>
                 <button type="submit" class="btn-primary mt-4" id="btn-auth-submit" style="width: 100%;">Create Account</button>
+                <p id="auth-error" class="auth-error-msg" style="display:none;"></p>
             </form>
 
             <div class="auth-divider mt-3">
@@ -356,8 +358,8 @@
     </div>
 
     <!-- Scripts -->
-    <script src="js/data.js"></script>
-    <script src="js/logic.js"></script>
-    <script src="js/app.js"></script>
+    <script src="js/data.js?v=frontend-20260403-02"></script>
+    <script src="js/logic.js?v=frontend-20260403-02"></script>
+    <script src="js/app.js?v=frontend-20260403-02"></script>
 </body>
 </html>

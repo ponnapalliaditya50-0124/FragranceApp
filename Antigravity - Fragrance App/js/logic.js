@@ -6,6 +6,15 @@ class OlfactoryEngine {
         this.archetypes = archetypes;
     }
 
+    normalizeLookup(value) {
+        return String(value || '')
+            .toLowerCase()
+            .normalize('NFKD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .replace(/[^a-z0-9]+/g, ' ')
+            .trim();
+    }
+
     // Extract scent-related keywords from free-text descriptions
     extractKeywords(text) {
         const scentKeywords = [
@@ -58,9 +67,55 @@ class OlfactoryEngine {
         'creamy': ['sweet', 'amber']
     };
 
+    async getRecommendations(userState) {
+        if (typeof isUsingFallbackCatalog === 'function' && isUsingFallbackCatalog()) {
+            return this.calculateRecommendations(userState);
+        }
+
+        try {
+            return await fetchRecommendations(userState);
+        } catch (error) {
+            if (Array.isArray(this.database) && this.database.length > 0) {
+                return this.calculateRecommendations(userState);
+            }
+
+            throw error;
+        }
+    }
+
+    getMatchedFavoriteFragrances(userState) {
+        const favorites = Array.isArray(userState && userState.favorites)
+            ? userState.favorites
+            : [];
+
+        if (favorites.length === 0 || !Array.isArray(this.database) || this.database.length === 0) {
+            return [];
+        }
+
+        const favoriteKeys = new Set(
+            favorites
+                .map(favorite => this.normalizeLookup(favorite))
+                .filter(Boolean)
+        );
+
+        return this.database.filter(fragrance => {
+            const fullLabel = this.normalizeLookup(`${fragrance.name} ${fragrance.house}`);
+            const nameOnly = this.normalizeLookup(fragrance.name);
+            return favoriteKeys.has(fullLabel) || favoriteKeys.has(nameOnly);
+        });
+    }
+
+    // Legacy local scoring — replaced by backend API
     calculateRecommendations(userState) {
-        console.log("Analyzing user state:", userState);
-        
+        const favoriteFragrances = this.getMatchedFavoriteFragrances(userState);
+        const favoriteIds = new Set(favoriteFragrances.map(fragrance => fragrance.id));
+        const favoriteFamilies = new Set(
+            favoriteFragrances.flatMap(fragrance => fragrance.noteFamilies || [])
+        );
+        const favoriteAccords = new Set(
+            favoriteFragrances.flatMap(fragrance => fragrance.accordTags || [])
+        );
+
         let scoredList = this.database.map(fragrance => {
             let score = 100;
             let matchLog = [];
@@ -77,6 +132,25 @@ class OlfactoryEngine {
                 score += 5;
                 matchLog.push("+5: Under budget");
             }
+
+            if (favoriteIds.has(fragrance.id)) {
+                score += 45;
+                matchLog.push("+45: Favorite fragrance match");
+            }
+
+            favoriteFamilies.forEach(familyId => {
+                if (fragrance.noteFamilies && fragrance.noteFamilies.includes(familyId)) {
+                    score += 12;
+                    matchLog.push(`+12: Favorite profile family match (${familyId})`);
+                }
+            });
+
+            favoriteAccords.forEach(accord => {
+                if (fragrance.accordTags && fragrance.accordTags.includes(accord)) {
+                    score += 8;
+                    matchLog.push(`+8: Favorite profile accord match (${accord})`);
+                }
+            });
 
             // 2a. Note Family Affinity (major signal)
             if (userState.selectedFamilies && userState.selectedFamilies.length > 0) {
@@ -142,15 +216,6 @@ class OlfactoryEngine {
                         });
                     }
                 });
-            }
-
-            // 2e. Mild anti-note penalty (background signal, not dominant)
-            if (fragrance.antiNotes) {
-                // Check if user's selected families conflict with anti-notes
-                // This is kept as a subtle guard rail
-                const allUserNotes = [...(userState.selectedNotes || [])];
-                // We don't penalize anti-notes against user selections anymore
-                // but we can use them for secondary differentiation
             }
 
             // 3. Occasion Match (Bonus)
@@ -241,15 +306,25 @@ class OlfactoryEngine {
         // Sort descending by score
         scoredList.sort((a, b) => b.matchScore - a.matchScore);
 
-        console.log("Scored results:", scoredList.map(s => `${s.name}: ${s.matchScore} [${s.matchLog.join(', ')}]`));
-
         return scoredList.slice(0, 3); // Return top 3
     }
 
     determineArchetype(topFragrances) {
-        if (!topFragrances || topFragrances.length === 0) return { title: "The Enigmatic Allure", description: this.archetypes["The Enigmatic Allure"] };
-        
-        const mainArchetype = topFragrances[0].archetype;
+        if (!topFragrances || topFragrances.length === 0) {
+            return {
+                title: "Profile Ready",
+                description: "Recommendations are available, but this dataset does not include a source-backed archetype label yet."
+            };
+        }
+
+        const mainArchetype = topFragrances.find(fragrance => fragrance && fragrance.archetype)?.archetype;
+        if (!mainArchetype || !this.archetypes[mainArchetype]) {
+            return {
+                title: "Profile Ready",
+                description: "Recommendations are available, but this dataset does not include a source-backed archetype label yet."
+            };
+        }
+
         return {
             title: mainArchetype,
             description: this.archetypes[mainArchetype]

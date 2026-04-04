@@ -1,0 +1,6 @@
+.DS_Store
+Fragrance App Backend/node_modules/
+Fragrance App Backend/*.db
+Fragrance App Backend/*.db-wal
+Fragrance App Backend/*.db-shm
+Fragrance App Backend/scripts/data.csv

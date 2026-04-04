@@ -1,308 +1,137 @@
-// Fragrance Database (Mock Data)
-const fragranceDB = [
-    {
-        id: "tf-oud-wood",
-        name: "Oud Wood",
-        house: "Tom Ford",
-        priceTier: 3,
+// Runtime API helpers plus static fragrance app configuration.
+const API_BASE = 'http://localhost:3001/api';
+const CATALOG_SOURCE_BACKEND = 'backend';
+const CATALOG_SOURCE_FALLBACK = 'fallback';
+let fragranceDB = [];
+let fragranceCatalogSource = CATALOG_SOURCE_BACKEND;
+
+function cloneFragranceRecord(fragrance) {
+    return {
+        ...fragrance,
         notes: {
-            top: ["Rosewood", "Cardamom", "Chinese Pepper"],
-            heart: ["Oud", "Sandalwood", "Vetiver"],
-            base: ["Tonka Bean", "Vanilla", "Amber"]
+            top: [...((fragrance && fragrance.notes && fragrance.notes.top) || [])],
+            heart: [...((fragrance && fragrance.notes && fragrance.notes.heart) || [])],
+            base: [...((fragrance && fragrance.notes && fragrance.notes.base) || [])]
         },
-        antiNotes: ["Sweet", "Floral", "Citrus", "Aquatic"],
-        noteFamilies: ["woody", "spicy", "amber"],
-        accordTags: ["Oriental", "Dark & Smoky"],
-        longevityScore: 7,
-        sillageScore: 6,
-        blindBuyScore: 65,
-        seasonTags: ["Fall", "Winter"],
-        occasionTags: ["Date Night", "Office"],
-        archetype: "The Dark Romantic"
-    },
-    {
-        id: "creed-aventus",
-        name: "Aventus",
-        house: "Creed",
-        priceTier: 3,
-        notes: {
-            top: ["Pineapple", "Bergamot", "Black Currant", "Apple"],
-            heart: ["Birch", "Patchouli", "Moroccan Jasmine", "Rose"],
-            base: ["Musk", "Oak moss", "Ambergris", "Vanilla"]
-        },
-        antiNotes: ["Heavy Amber", "Oud", "Gourmand"],
-        noteFamilies: ["woody", "fresh", "floral"],
-        accordTags: ["Aromatic", "Fresh Clean"],
-        longevityScore: 8,
-        sillageScore: 8,
-        blindBuyScore: 85,
-        seasonTags: ["Spring", "Summer", "All-year Signature"],
-        occasionTags: ["Office", "Casual", "Clubbing"],
-        archetype: "The Confident Leader"
-    },
-    {
-        id: "mkk",
-        name: "Muscs Koublai Khan",
-        house: "Serge Lutens",
-        priceTier: 3,
-        notes: {
-            top: ["Civet", "Castoreum"],
-            heart: ["Ambrette", "Cumin", "Costus Root"],
-            base: ["Musk", "Patchouli", "Vanilla"]
-        },
-        antiNotes: ["Clean", "Fresh", "Citrus", "Fruity", "Aquatic"],
-        noteFamilies: ["animalic", "spicy", "sweet"],
-        accordTags: ["Oriental", "Dark & Smoky"],
-        longevityScore: 9,
-        sillageScore: 7,
-        blindBuyScore: 10,
-        seasonTags: ["Fall", "Winter"],
-        occasionTags: ["Date Night", "Intimate"],
-        archetype: "The Provocateur"
-    },
-    {
-        id: "by-gipsy-water",
-        name: "Gypsy Water",
-        house: "Byredo",
-        priceTier: 3,
-        notes: {
-            top: ["Bergamot", "Lemon", "Pepper", "Juniper"],
-            heart: ["Incense", "Pine Needles", "Orris"],
-            base: ["Amber", "Vanilla", "Sandalwood"]
-        },
-        antiNotes: ["Oud", "Heavy Leather", "Animalic", "Loud"],
-        noteFamilies: ["citrus", "woody", "amber"],
-        accordTags: ["Aromatic", "Earthy"],
-        longevityScore: 5,
-        sillageScore: 4,
-        blindBuyScore: 90,
-        seasonTags: ["Spring", "Summer", "Fall"],
-        occasionTags: ["Casual", "Office", "Intimate"],
-        archetype: "The Free Spirit"
-    },
-    {
-        id: "ysl-la-nuit",
-        name: "La Nuit de l'Homme",
-        house: "Yves Saint Laurent",
-        priceTier: 2,
-        notes: {
-            top: ["Cardamom"],
-            heart: ["Lavender", "Virginia Cedar", "Bergamot"],
-            base: ["Vetiver", "Caraway"]
-        },
-        antiNotes: ["Oud", "Animalic", "Aquatic"],
-        noteFamilies: ["spicy", "floral", "woody"],
-        accordTags: ["Aromatic", "Dark & Smoky"],
-        longevityScore: 6,
-        sillageScore: 6,
-        blindBuyScore: 80,
-        seasonTags: ["Fall", "Winter", "Spring"],
-        occasionTags: ["Date Night"],
-        archetype: "The Dark Romantic"
-    },
-    {
-        id: "adg-profumo",
-        name: "Acqua di Giò Profumo",
-        house: "Giorgio Armani",
-        priceTier: 2,
-        notes: {
-            top: ["Sea Notes", "Bergamot"],
-            heart: ["Rosemary", "Sage", "Geranium"],
-            base: ["Incense", "Patchouli"]
-        },
-        antiNotes: ["Gourmand", "Sweet", "Heavy Vanilla", "Oud"],
-        noteFamilies: ["fresh", "citrus", "amber"],
-        accordTags: ["Aquatic", "Aromatic", "Fresh Clean"],
-        longevityScore: 8,
-        sillageScore: 8,
-        blindBuyScore: 95,
-        seasonTags: ["Summer", "Spring", "All-year Signature"],
-        occasionTags: ["Office", "Casual", "Clubbing"],
-        archetype: "The Confident Leader"
-    },
-    {
-        id: "dior-sauvage-elixir",
-        name: "Sauvage Elixir",
-        house: "Dior",
-        priceTier: 3,
-        notes: {
-            top: ["Nutmeg", "Cinnamon", "Cardamom", "Grapefruit"],
-            heart: ["Lavender"],
-            base: ["Licorice", "Sandalwood", "Amber", "Patchouli", "Vetiver"]
-        },
-        antiNotes: ["Subtle", "Skin Scent", "Aquatic", "Floral"],
-        noteFamilies: ["spicy", "woody", "amber"],
-        accordTags: ["Aromatic", "Dark & Smoky"],
-        longevityScore: 10,
-        sillageScore: 10,
-        blindBuyScore: 60,
-        seasonTags: ["Fall", "Winter"],
-        occasionTags: ["Clubbing", "Date Night"],
-        archetype: "The Bold Extrovert"
-    },
-    {
-        id: "replica-jazz-club",
-        name: "Jazz Club",
-        house: "Maison Margiela",
-        priceTier: 2,
-        notes: {
-            top: ["Pink Pepper", "Neroli", "Lemon"],
-            heart: ["Rum", "Vetiver", "Clary Sage"],
-            base: ["Tobacco Leaf", "Vanilla Bean", "Styrax"]
-        },
-        antiNotes: ["Aquatic", "Fresh", "Green"],
-        noteFamilies: ["leather", "spicy", "sweet"],
-        accordTags: ["Oriental", "Dark & Smoky"],
-        longevityScore: 8,
-        sillageScore: 7,
-        blindBuyScore: 70,
-        seasonTags: ["Fall", "Winter"],
-        occasionTags: ["Date Night", "Casual"],
-        archetype: "The Dark Romantic"
-    },
-    {
-        id: "le-labo-santal-33",
-        name: "Santal 33",
-        house: "Le Labo",
-        priceTier: 3,
-        notes: {
-            top: ["Violet Accord", "Cardamom"],
-            heart: ["Iris", "Papyrus", "Ambrox"],
-            base: ["Cedarwood", "Leather", "Sandalwood"]
-        },
-        antiNotes: ["Sweet", "Fruity", "Aquatic"],
-        noteFamilies: ["woody", "leather", "floral"],
-        accordTags: ["Aromatic", "Earthy"],
-        longevityScore: 9,
-        sillageScore: 9,
-        blindBuyScore: 50,
-        seasonTags: ["Fall", "Spring", "All-year Signature"],
-        occasionTags: ["Casual", "Office"],
-        archetype: "The Modern Aesthete"
-    },
-    {
-        id: "versace-eros",
-        name: "Eros",
-        house: "Versace",
-        priceTier: 1,
-        notes: {
-            top: ["Mint", "Green Apple", "Lemon"],
-            heart: ["Tonka Bean", "Ambroxan", "Geranium"],
-            base: ["Vanilla", "Cedar", "Vetiver", "Oakmoss"]
-        },
-        antiNotes: ["Subtle", "Earthy", "Oud", "Animalic"],
-        noteFamilies: ["fresh", "sweet", "woody"],
-        accordTags: ["Aromatic", "Fresh Clean"],
-        longevityScore: 9,
-        sillageScore: 9,
-        blindBuyScore: 80,
-        seasonTags: ["Fall", "Winter", "Spring"],
-        occasionTags: ["Clubbing"],
-        archetype: "The Bold Extrovert"
-    },
-    {
-        id: "nautica-voyage",
-        name: "Voyage",
-        house: "Nautica",
-        priceTier: 1,
-        notes: {
-            top: ["Green Leaves", "Apple"],
-            heart: ["Lotus", "Water Mimosa"],
-            base: ["Cedar", "Musk", "Amber", "Oakmoss"]
-        },
-        antiNotes: ["Oud", "Heavy Vanilla", "Tobacco", "Leather"],
-        noteFamilies: ["fresh", "woody", "animalic"],
-        accordTags: ["Aquatic", "Fresh Clean"],
-        longevityScore: 6,
-        sillageScore: 6,
-        blindBuyScore: 95,
-        seasonTags: ["Summer", "Spring"],
-        occasionTags: ["Casual", "Office"],
-        archetype: "The Easygoing Optimist"
-    },
-    {
-        id: "cdnim",
-        name: "Club de Nuit Intense Man",
-        house: "Armaf",
-        priceTier: 1,
-        dupeOf: "creed-aventus",
-        notes: {
-            top: ["Lemon", "Pineapple", "Black Currant", "Bergamot", "Apple"],
-            heart: ["Birch", "Jasmine", "Rose"],
-            base: ["Musk", "Ambergris", "Patchouli", "Vanilla"]
-        },
-        antiNotes: ["Heavy Amber", "Oud", "Gourmand"],
-        noteFamilies: ["woody", "fresh", "floral"],
-        accordTags: ["Aromatic", "Fresh Clean"],
-        longevityScore: 9,
-        sillageScore: 9,
-        blindBuyScore: 85,
-        seasonTags: ["Spring", "Summer", "All-year Signature"],
-        occasionTags: ["Office", "Casual", "Clubbing"],
-        archetype: "The Confident Leader"
-    },
-    {
-        id: "zara-rich-warm-addictive",
-        name: "Tobacco Collection Rich Warm Addictive",
-        house: "Zara",
-        priceTier: 1,
-        notes: {
-            top: ["Rum"],
-            heart: ["Peony"],
-            base: ["Vanilla Bourbon", "Tobacco"]
-        },
-        antiNotes: ["Fresh", "Citrus", "Aquatic", "Green"],
-        noteFamilies: ["leather", "sweet", "amber"],
-        accordTags: ["Oriental", "Gourmand"],
-        longevityScore: 6,
-        sillageScore: 5,
-        blindBuyScore: 80,
-        seasonTags: ["Fall", "Winter"],
-        occasionTags: ["Date Night", "Casual"],
-        archetype: "The Dark Romantic"
-    },
-    {
-        id: "k-wood-mystique",
-        name: "Woody Oud",
-        house: "Maison Alhambra",
-        priceTier: 1,
-        dupeOf: "tf-oud-wood",
-        notes: {
-            top: ["Rosewood", "Cardamom", "Chinese Pepper"],
-            heart: ["Oud", "Sandalwood", "Vetiver"],
-            base: ["Tonka Bean", "Vanilla", "Amber"]
-        },
-        antiNotes: ["Sweet", "Floral", "Citrus", "Aquatic"],
-        noteFamilies: ["woody", "spicy", "amber"],
-        accordTags: ["Oriental", "Dark & Smoky"],
-        longevityScore: 6,
-        sillageScore: 5,
-        blindBuyScore: 70,
-        seasonTags: ["Fall", "Winter"],
-        occasionTags: ["Date Night", "Office"],
-        archetype: "The Dark Romantic"
-    },
-    {
-        id: "br540",
-        name: "Baccarat Rouge 540",
-        house: "Maison Francis Kurkdjian",
-        priceTier: 3,
-        notes: {
-            top: ["Saffron", "Jasmine"],
-            heart: ["Amberwood", "Ambergris"],
-            base: ["Fir Resin", "Cedar"]
-        },
-        antiNotes: ["Fresh", "Citrus", "Leather", "Oud", "Barbershop"],
-        noteFamilies: ["sweet", "amber", "floral"],
-        accordTags: ["Oriental", "Gourmand", "Powdery"],
-        longevityScore: 10,
-        sillageScore: 9,
-        blindBuyScore: 75,
-        seasonTags: ["Fall", "Winter", "Spring", "All-year Signature"],
-        occasionTags: ["Date Night", "Clubbing", "Casual"],
-        archetype: "The Enigmatic Allure"
+        accordTags: [...((fragrance && fragrance.accordTags) || [])],
+        noteFamilies: [...((fragrance && fragrance.noteFamilies) || [])],
+        seasonTags: [...((fragrance && fragrance.seasonTags) || [])],
+        occasionTags: [...((fragrance && fragrance.occasionTags) || [])]
+    };
+}
+
+function setFragranceCatalog(catalog, source) {
+    fragranceCatalogSource = source === CATALOG_SOURCE_FALLBACK
+        ? CATALOG_SOURCE_FALLBACK
+        : CATALOG_SOURCE_BACKEND;
+    fragranceDB = Array.isArray(catalog) ? catalog.map(cloneFragranceRecord) : [];
+    return fragranceDB;
+}
+
+function getCatalogSource() {
+    return fragranceCatalogSource;
+}
+
+function isUsingFallbackCatalog() {
+    return getCatalogSource() === CATALOG_SOURCE_FALLBACK;
+}
+
+async function requestApiJson(url, options = {}) {
+    const response = await fetch(url, options);
+    const rawBody = await response.text();
+    let payload = null;
+
+    if (rawBody) {
+        try {
+            payload = JSON.parse(rawBody);
+        } catch (error) {
+            throw new Error('API returned an invalid JSON response.');
+        }
     }
-];
+
+    if (!response.ok) {
+        const apiError = new Error(
+            payload && payload.error
+                ? payload.error
+                : `API request failed with status ${response.status}`
+        );
+
+        apiError.status = response.status;
+        apiError.code = payload && payload.code ? payload.code : 'API_ERROR';
+        apiError.payload = payload;
+        throw apiError;
+    }
+
+    return payload;
+}
+
+function parseIntegerOrFallback(value, fallback) {
+    const parsed = Number.parseInt(value, 10);
+    return Number.isNaN(parsed) ? fallback : parsed;
+}
+
+// Load the live fragrance catalog so starter picks, profile saves, and dupe lookups still work.
+async function loadFragranceCatalog() {
+    const catalog = await requestApiJson(`${API_BASE}/fragrances?limit=5000`);
+
+    if (!Array.isArray(catalog)) {
+        throw new Error('The fragrance catalog response was not an array.');
+    }
+
+    return setFragranceCatalog(catalog, CATALOG_SOURCE_BACKEND);
+}
+
+function loadFallbackFragranceCatalog() {
+    return setFragranceCatalog(FALLBACK_FRAGRANCE_CATALOG, CATALOG_SOURCE_FALLBACK);
+}
+
+// Fetch fragrance suggestions for the autocomplete search field.
+async function fetchFragranceSuggestions(query) {
+    if (isUsingFallbackCatalog()) {
+        return [];
+    }
+
+    const trimmedQuery = String(query || '').trim();
+
+    if (trimmedQuery.length < 2) {
+        return [];
+    }
+
+    const matches = await requestApiJson(
+        `${API_BASE}/fragrances/search?q=${encodeURIComponent(trimmedQuery)}`
+    );
+
+    if (!Array.isArray(matches)) {
+        throw new Error('The fragrance search response was not an array.');
+    }
+
+    return matches.map(fragrance => `${fragrance.name} — ${fragrance.house}`);
+}
+
+// Send user preferences to the backend and get ranked recommendations.
+async function fetchRecommendations(userState) {
+    const recommendations = await requestApiJson(`${API_BASE}/recommend`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            noteFamilies: userState.selectedFamilies || [],
+            accordTags: userState.selectedAccords || [],
+            occasions: userState.occasions || [],
+            climates: userState.climates || [],
+            budget: parseIntegerOrFallback(userState.budget, 2),
+            performance: parseIntegerOrFallback(userState.performance, 50),
+            selectedNotes: userState.selectedNotes || [],
+            scentDescription: userState.scentDescription || '',
+            usageDescription: userState.usageDescription || ''
+        })
+    });
+
+    if (!Array.isArray(recommendations)) {
+        throw new Error('The recommendation response was not an array.');
+    }
+
+    return recommendations;
+}
 
 // Hierarchical note families — each family has sub-notes the user can drill into
 const SCENT_FAMILIES = [
@@ -332,54 +161,183 @@ const ACCORD_PALETTE = [
     "Gourmand", "Fresh Clean", "Dark & Smoky", "Powdery", "Earthy"
 ];
 
-// "Start Here" curated picks for users without a fragrance in mind
-const STARTER_PICKS = [
-    { name: "Aventus", house: "Creed", vibe: "Fresh & Powerful", icon: "🍍" },
-    { name: "Baccarat Rouge 540", house: "MFK", vibe: "Sweet & Magnetic", icon: "✨" },
-    { name: "Bleu de Chanel", house: "Chanel", vibe: "Clean & Versatile", icon: "💎" },
-    { name: "La Nuit de l'Homme", house: "YSL", vibe: "Dark & Seductive", icon: "🌙" },
-    { name: "Oud Wood", house: "Tom Ford", vibe: "Woody & Refined", icon: "🪵" },
-    { name: "Acqua di Giò Profumo", house: "Armani", vibe: "Aquatic & Fresh", icon: "🌊" },
-    { name: "Tobacco Vanille", house: "Tom Ford", vibe: "Warm & Cozy", icon: "🔥" },
-    { name: "Santal 33", house: "Le Labo", vibe: "Artsy & Unique", icon: "🎨" }
+const FALLBACK_FRAGRANCE_CATALOG = [
+    {
+        id: "creed-aventus",
+        name: "Aventus",
+        house: "Creed",
+        vibe: "Fresh & Powerful",
+        priceTier: 3,
+        longevityScore: 8.5,
+        sillageScore: 8.2,
+        blindBuyScore: 78,
+        archetype: "The Confident Leader",
+        dupeOf: null,
+        notes: {
+            top: ["Pineapple", "Blackcurrant", "Bergamot"],
+            heart: ["Birch", "Patchouli", "Jasmine"],
+            base: ["Oakmoss", "Ambergris", "Vanilla"]
+        },
+        accordTags: ["Fresh Clean", "Aromatic", "Earthy"],
+        noteFamilies: ["citrus", "fresh", "woody"],
+        seasonTags: ["Spring", "Summer", "Fall", "All-year Signature"],
+        occasionTags: ["Office", "Casual", "Formal/Event", "Everyday/Signature"]
+    },
+    {
+        id: "mfk-baccarat-rouge-540",
+        name: "Baccarat Rouge 540",
+        house: "MFK",
+        vibe: "Sweet & Magnetic",
+        priceTier: 3,
+        longevityScore: 9.2,
+        sillageScore: 9.0,
+        blindBuyScore: 74,
+        archetype: "The Enigmatic Allure",
+        dupeOf: null,
+        notes: {
+            top: ["Saffron", "Jasmine"],
+            heart: ["Amberwood", "Ambergris"],
+            base: ["Fir Resin", "Cedar"]
+        },
+        accordTags: ["Oriental", "Gourmand"],
+        noteFamilies: ["sweet", "amber", "woody"],
+        seasonTags: ["Fall", "Winter"],
+        occasionTags: ["Date Night", "Formal/Event", "Clubbing"]
+    },
+    {
+        id: "chanel-bleu-de-chanel",
+        name: "Bleu de Chanel",
+        house: "Chanel",
+        vibe: "Clean & Versatile",
+        priceTier: 3,
+        longevityScore: 8.0,
+        sillageScore: 7.5,
+        blindBuyScore: 82,
+        archetype: "The Easygoing Optimist",
+        dupeOf: null,
+        notes: {
+            top: ["Grapefruit", "Lemon", "Mint"],
+            heart: ["Ginger", "Nutmeg", "Jasmine"],
+            base: ["Incense", "Cedar", "Sandalwood"]
+        },
+        accordTags: ["Fresh Clean", "Aromatic"],
+        noteFamilies: ["citrus", "fresh", "woody", "spicy"],
+        seasonTags: ["Spring", "Summer", "Fall", "All-year Signature"],
+        occasionTags: ["Office", "Casual", "Formal/Event", "Everyday/Signature"]
+    },
+    {
+        id: "ysl-la-nuit-de-l-homme",
+        name: "La Nuit de l'Homme",
+        house: "YSL",
+        vibe: "Dark & Seductive",
+        priceTier: 2,
+        longevityScore: 7.4,
+        sillageScore: 6.8,
+        blindBuyScore: 68,
+        archetype: "The Dark Romantic",
+        dupeOf: null,
+        notes: {
+            top: ["Cardamom"],
+            heart: ["Lavender", "Cedar", "Bergamot"],
+            base: ["Vetiver", "Caraway"]
+        },
+        accordTags: ["Aromatic", "Dark & Smoky"],
+        noteFamilies: ["spicy", "woody", "fresh"],
+        seasonTags: ["Fall", "Winter"],
+        occasionTags: ["Date Night", "Intimate", "Formal/Event"]
+    },
+    {
+        id: "tom-ford-oud-wood",
+        name: "Oud Wood",
+        house: "Tom Ford",
+        vibe: "Woody & Refined",
+        priceTier: 3,
+        longevityScore: 8.1,
+        sillageScore: 7.1,
+        blindBuyScore: 61,
+        archetype: "The Provocateur",
+        dupeOf: null,
+        notes: {
+            top: ["Cardamom", "Pink Pepper"],
+            heart: ["Oud", "Sandalwood", "Vetiver"],
+            base: ["Tonka Bean", "Amber", "Vanilla"]
+        },
+        accordTags: ["Oriental", "Earthy", "Dark & Smoky"],
+        noteFamilies: ["woody", "spicy", "amber"],
+        seasonTags: ["Fall", "Winter"],
+        occasionTags: ["Date Night", "Formal/Event", "Intimate"]
+    },
+    {
+        id: "armani-acqua-di-gio-profumo",
+        name: "Acqua di Giò Profumo",
+        house: "Armani",
+        vibe: "Aquatic & Fresh",
+        priceTier: 2,
+        longevityScore: 8.1,
+        sillageScore: 7.3,
+        blindBuyScore: 80,
+        archetype: "The Free Spirit",
+        dupeOf: null,
+        notes: {
+            top: ["Sea Notes", "Bergamot"],
+            heart: ["Rosemary", "Sage", "Geranium"],
+            base: ["Incense", "Patchouli"]
+        },
+        accordTags: ["Aquatic", "Fresh Clean", "Aromatic"],
+        noteFamilies: ["fresh", "citrus", "woody"],
+        seasonTags: ["Spring", "Summer"],
+        occasionTags: ["Casual", "Office", "Vacation/Holiday", "Everyday/Signature"]
+    },
+    {
+        id: "tom-ford-tobacco-vanille",
+        name: "Tobacco Vanille",
+        house: "Tom Ford",
+        vibe: "Warm & Cozy",
+        priceTier: 3,
+        longevityScore: 9.1,
+        sillageScore: 8.7,
+        blindBuyScore: 58,
+        archetype: "The Bold Extrovert",
+        dupeOf: null,
+        notes: {
+            top: ["Tobacco Leaf", "Spices"],
+            heart: ["Vanilla", "Tonka Bean", "Cacao"],
+            base: ["Dried Fruits", "Woody Notes"]
+        },
+        accordTags: ["Gourmand", "Oriental", "Dark & Smoky"],
+        noteFamilies: ["sweet", "spicy", "leather", "amber"],
+        seasonTags: ["Fall", "Winter"],
+        occasionTags: ["Date Night", "Clubbing", "Formal/Event"]
+    },
+    {
+        id: "le-labo-santal-33",
+        name: "Santal 33",
+        house: "Le Labo",
+        vibe: "Artsy & Unique",
+        priceTier: 3,
+        longevityScore: 7.8,
+        sillageScore: 7.0,
+        blindBuyScore: 63,
+        archetype: "The Modern Aesthete",
+        dupeOf: null,
+        notes: {
+            top: ["Cardamom", "Violet"],
+            heart: ["Iris", "Papyrus"],
+            base: ["Sandalwood", "Cedar", "Leather"]
+        },
+        accordTags: ["Earthy", "Powdery", "Aromatic"],
+        noteFamilies: ["woody", "leather", "floral"],
+        seasonTags: ["Spring", "Fall", "All-year Signature"],
+        occasionTags: ["Casual", "Office", "Everyday/Signature", "Vacation/Holiday"]
+    }
 ];
 
-// Curated autocomplete suggestions for the Favorites input (Step 1)
-const FRAGRANCE_SUGGESTIONS = [
-    "Aventus — Creed",
-    "Oud Wood — Tom Ford",
-    "Baccarat Rouge 540 — Maison Francis Kurkdjian",
-    "Santal 33 — Le Labo",
-    "Gypsy Water — Byredo",
-    "La Nuit de l'Homme — Yves Saint Laurent",
-    "Sauvage Elixir — Dior",
-    "Bleu de Chanel — Chanel",
-    "Acqua di Giò Profumo — Giorgio Armani",
-    "Jazz Club — Maison Margiela",
-    "Tobacco Vanille — Tom Ford",
-    "Green Irish Tweed — Creed",
-    "Eros — Versace",
-    "The One EDP — Dolce & Gabbana",
-    "Spicebomb Extreme — Viktor & Rolf",
-    "Voyage — Nautica",
-    "Club de Nuit Intense Man — Armaf",
-    "Interlude Man — Amouage",
-    "Noir de Noir — Tom Ford",
-    "Light Blue — Dolce & Gabbana",
-    "Y EDP — Yves Saint Laurent",
-    "Tuscan Leather — Tom Ford",
-    "Reflection Man — Amouage",
-    "Pegasus — Parfums de Marly",
-    "Layton — Parfums de Marly",
-    "Stronger With You Intensely — Emporio Armani",
-    "Muscs Koublai Khan — Serge Lutens",
-    "Terre d'Hermès — Hermès",
-    "Habit Rouge — Guerlain",
-    "Tobacco Collection Rich Warm Addictive — Zara",
-    "Invictus — Paco Rabanne",
-    "1 Million — Paco Rabanne",
-    "Dylan Blue — Versace"
-];
+// "Start Here" curated picks for users without a fragrance in mind
+const STARTER_PICKS = FALLBACK_FRAGRANCE_CATALOG.map(({ name, house, vibe }) => ({
+    name,
+    house,
+    vibe
+}));
 
 // Archetypes description
 const ARCHETYPES = {
@@ -392,3 +350,13 @@ const ARCHETYPES = {
     "The Easygoing Optimist": "Fresh, uplifting, and totally uncomplicated. Your scent is a breath of fresh air that offends no one.",
     "The Enigmatic Allure": "Sweet but transparent, loud but airy. You embody modern luxury that is impossible to pin down."
 };
+
+const OCCASION_OPTIONS = [
+    "Office", "Casual", "Date Night", "Clubbing", "Intimate",
+    "Formal/Event", "Gym/Active", "Bedtime/Relaxing",
+    "Vacation/Holiday", "Everyday/Signature"
+];
+
+const CLIMATE_OPTIONS = [
+    "Hot & Humid", "Dry & Desert", "Temperate", "Cold & Crisp", "Tropical"
+];
