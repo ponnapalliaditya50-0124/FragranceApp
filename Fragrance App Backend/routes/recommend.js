@@ -1,5 +1,6 @@
 // This file scores fragrances against user preferences and returns the strongest matches.
 const express = require("express");
+const { authOptional, sanitizeLatestProfile, upsertUserState } = require("../auth");
 const { db, isDatabaseSeeded, getDatabaseNotSeededPayload } = require("../db");
 const { getFullFragrancesByIds } = require("./fragrances");
 
@@ -63,6 +64,12 @@ const USAGE_MATCHERS = [
   }
 ];
 
+const DERIVED_SIGNAL_WEIGHTS = {
+  families: 12,
+  notes: 6,
+  accords: 8
+};
+
 function normalizeText(value) {
   return String(value || "")
     .toLowerCase()
@@ -85,6 +92,16 @@ function extractDescriptionKeywords(text) {
   return Object.keys(KEYWORD_FAMILY_MAP).filter((keyword) => lowered.includes(keyword));
 }
 
+function normalizeDerivedScentProfile(derivedProfile) {
+  const safeProfile = derivedProfile && typeof derivedProfile === "object" ? derivedProfile : {};
+
+  return {
+    families: normalizeList(safeProfile.families),
+    notes: normalizeList(safeProfile.notes),
+    accords: normalizeList(safeProfile.accords)
+  };
+}
+
 function scoreFragrance(fragrance, preferences) {
   let score = 100;
 
@@ -98,6 +115,9 @@ function scoreFragrance(fragrance, preferences) {
     ...(fragrance.notes.base || [])
   ];
   const normalizedNotes = fragranceNotes.map((note) => normalizeText(note));
+  const explicitFamilies = new Set(preferences.noteFamilies);
+  const explicitNotes = new Set(preferences.selectedNotes);
+  const explicitAccords = new Set(preferences.accordTags);
 
   if (Number.isFinite(preferences.budget) && Number.isFinite(fragrance.priceTier)) {
     if (fragrance.priceTier === preferences.budget) {
@@ -124,6 +144,24 @@ function scoreFragrance(fragrance, preferences) {
   preferences.accordTags.forEach((accord) => {
     if (fragranceAccords.has(accord)) {
       score += 20;
+    }
+  });
+
+  preferences.derivedProfile.scent.families.forEach((family) => {
+    if (!explicitFamilies.has(family) && fragranceFamilies.has(family)) {
+      score += DERIVED_SIGNAL_WEIGHTS.families;
+    }
+  });
+
+  preferences.derivedProfile.scent.notes.forEach((note) => {
+    if (!explicitNotes.has(note) && normalizedNotes.includes(note)) {
+      score += DERIVED_SIGNAL_WEIGHTS.notes;
+    }
+  });
+
+  preferences.derivedProfile.scent.accords.forEach((accord) => {
+    if (!explicitAccords.has(accord) && fragranceAccords.has(accord)) {
+      score += DERIVED_SIGNAL_WEIGHTS.accords;
     }
   });
 
@@ -195,13 +233,14 @@ function scoreFragrance(fragrance, preferences) {
   };
 }
 
-router.post("/", (req, res) => {
+router.post("/", authOptional, (req, res) => {
   try {
     if (!ensureDatabaseSeeded(res)) {
       return;
     }
 
     const preferences = {
+      favorites: Array.isArray(req.body.favorites) ? req.body.favorites.filter(Boolean) : [],
       noteFamilies: normalizeList(req.body.noteFamilies),
       accordTags: normalizeList(req.body.accordTags),
       occasions: normalizeList(req.body.occasions),
@@ -210,7 +249,12 @@ router.post("/", (req, res) => {
       performance: Number.isFinite(Number(req.body.performance)) ? Number.parseInt(req.body.performance, 10) : null,
       selectedNotes: normalizeList(req.body.selectedNotes),
       scentDescription: req.body.scentDescription || "",
-      usageDescription: req.body.usageDescription || ""
+      usageDescription: req.body.usageDescription || "",
+      derivedProfile: {
+        scent: normalizeDerivedScentProfile(
+          req.body && req.body.derivedProfile && req.body.derivedProfile.scent
+        )
+      }
     };
 
     const fragranceIds = db.prepare("SELECT id FROM fragrances").all().map((row) => row.id);
@@ -219,6 +263,24 @@ router.post("/", (req, res) => {
       .map((fragrance) => scoreFragrance(fragrance, preferences))
       .sort((left, right) => right.matchScore - left.matchScore)
       .slice(0, 5);
+
+    if (req.authenticatedUser) {
+      upsertUserState(req.authenticatedUser.id, {
+        latestProfile: sanitizeLatestProfile({
+          favorites: preferences.favorites,
+          scentDescription: preferences.scentDescription,
+          usageDescription: preferences.usageDescription,
+          selectedFamilies: preferences.noteFamilies,
+          selectedNotes: preferences.selectedNotes,
+          selectedAccords: preferences.accordTags,
+          occasions: preferences.occasions,
+          climates: preferences.climates,
+          performance: preferences.performance,
+          budget: preferences.budget
+        }),
+        latestRecommendationIds: rankedFragrances.map((fragrance) => fragrance.id)
+      });
+    }
 
     res.json(rankedFragrances);
   } catch (error) {

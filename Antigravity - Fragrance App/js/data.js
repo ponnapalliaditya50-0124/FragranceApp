@@ -37,7 +37,10 @@ function isUsingFallbackCatalog() {
 }
 
 async function requestApiJson(url, options = {}) {
-    const response = await fetch(url, options);
+    const response = await fetch(url, {
+        credentials: 'include',
+        ...options
+    });
     const rawBody = await response.text();
     let payload = null;
 
@@ -68,6 +71,14 @@ async function requestApiJson(url, options = {}) {
 function parseIntegerOrFallback(value, fallback) {
     const parsed = Number.parseInt(value, 10);
     return Number.isNaN(parsed) ? fallback : parsed;
+}
+
+function createJsonRequestOptions(method, payload) {
+    return {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload || {})
+    };
 }
 
 // Load the live fragrance catalog so starter picks, profile saves, and dupe lookups still work.
@@ -110,10 +121,21 @@ async function fetchFragranceSuggestions(query) {
 
 // Send user preferences to the backend and get ranked recommendations.
 async function fetchRecommendations(userState) {
+    const derivedScentProfile = (
+        userState
+        && userState.interpretation
+        && userState.interpretation.scent
+        && userState.interpretation.scent.derivedProfile
+        && typeof userState.interpretation.scent.derivedProfile === 'object'
+    )
+        ? userState.interpretation.scent.derivedProfile
+        : { families: [], notes: [], accords: [] };
+
     const recommendations = await requestApiJson(`${API_BASE}/recommend`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+            favorites: userState.favorites || [],
             noteFamilies: userState.selectedFamilies || [],
             accordTags: userState.selectedAccords || [],
             occasions: userState.occasions || [],
@@ -122,7 +144,14 @@ async function fetchRecommendations(userState) {
             performance: parseIntegerOrFallback(userState.performance, 50),
             selectedNotes: userState.selectedNotes || [],
             scentDescription: userState.scentDescription || '',
-            usageDescription: userState.usageDescription || ''
+            usageDescription: userState.usageDescription || '',
+            derivedProfile: {
+                scent: {
+                    families: derivedScentProfile.families || [],
+                    notes: derivedScentProfile.notes || [],
+                    accords: derivedScentProfile.accords || []
+                }
+            }
         })
     });
 
@@ -133,32 +162,171 @@ async function fetchRecommendations(userState) {
     return recommendations;
 }
 
+async function fetchAuthSession() {
+    return requestApiJson(`${API_BASE}/auth/session`);
+}
+
+async function signupAccount({ email, password }) {
+    return requestApiJson(
+        `${API_BASE}/auth/signup`,
+        createJsonRequestOptions('POST', { email, password })
+    );
+}
+
+async function verifyEmailCode({ email, code }) {
+    return requestApiJson(
+        `${API_BASE}/auth/verify-email`,
+        createJsonRequestOptions('POST', { email, code })
+    );
+}
+
+async function resendVerificationCode({ email }) {
+    return requestApiJson(
+        `${API_BASE}/auth/resend-verification`,
+        createJsonRequestOptions('POST', { email })
+    );
+}
+
+async function loginAccount({ email, password }) {
+    return requestApiJson(
+        `${API_BASE}/auth/login`,
+        createJsonRequestOptions('POST', { email, password })
+    );
+}
+
+async function logoutAccountRequest() {
+    return requestApiJson(
+        `${API_BASE}/auth/logout`,
+        createJsonRequestOptions('POST', {})
+    );
+}
+
+async function requestPasswordReset({ email }) {
+    return requestApiJson(
+        `${API_BASE}/auth/forgot-password`,
+        createJsonRequestOptions('POST', { email })
+    );
+}
+
+async function resetPasswordWithCode({ email, code, password }) {
+    return requestApiJson(
+        `${API_BASE}/auth/reset-password`,
+        createJsonRequestOptions('POST', { email, code, password })
+    );
+}
+
+async function saveAccountState(payload) {
+    return requestApiJson(
+        `${API_BASE}/account/state`,
+        createJsonRequestOptions('PUT', payload)
+    );
+}
+
+async function saveRecommendationForAccount(fragranceId) {
+    return requestApiJson(
+        `${API_BASE}/account/saved-fragrances`,
+        createJsonRequestOptions('POST', { fragranceId })
+    );
+}
+
+async function mergeGuestAccountState(payload) {
+    return requestApiJson(
+        `${API_BASE}/account/merge-guest-state`,
+        createJsonRequestOptions('POST', payload)
+    );
+}
+
+async function interpretPreferenceText({ kind, text }) {
+    return requestApiJson(`${API_BASE}/interpret`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            kind: String(kind || '').trim(),
+            text: String(text || '')
+        })
+    });
+}
+
+async function transcribePreferenceAudio(formData) {
+    return requestApiJson(`${API_BASE}/transcribe`, {
+        method: 'POST',
+        body: formData
+    });
+}
+
 // Hierarchical note families — each family has sub-notes the user can drill into
 const SCENT_FAMILIES = [
     { id: "woody",    label: "Woody",              desc: "Cedar, Sandalwood, Oud, Vetiver",
-      notes: ["Cedar", "Sandalwood", "Oud", "Vetiver", "Birch", "Patchouli", "Oakmoss", "Rosewood"] },
+      notes: ["Cedar", "Sandalwood", "Oud", "Vetiver", "Birch", "Patchouli", "Oakmoss", "Rosewood"],
+      helpText: "Grounded and dry, woody notes feel smooth, forest-like, and comforting. They usually read warm, polished, and quietly confident." },
     { id: "citrus",   label: "Citrus",             desc: "Bergamot, Lemon, Grapefruit, Neroli",
-      notes: ["Bergamot", "Lemon", "Grapefruit", "Lime", "Neroli", "Orange"] },
+      notes: ["Bergamot", "Lemon", "Grapefruit", "Lime", "Neroli", "Orange"],
+      helpText: "Bright and sparkling, citrus notes feel crisp, airy, and energizing. They are ideal if you like scents that open clean and refreshing." },
     { id: "floral",   label: "Floral",             desc: "Rose, Jasmine, Iris, Lavender",
-      notes: ["Rose", "Jasmine", "Iris", "Violet", "Peony", "Geranium", "Lavender"] },
+      notes: ["Rose", "Jasmine", "Iris", "Violet", "Peony", "Geranium", "Lavender"],
+      helpText: "Floral notes bring softness, elegance, and lift. Depending on the flowers, they can feel romantic, airy, fresh, or gently aromatic." },
     { id: "spicy",    label: "Spicy",              desc: "Cardamom, Cinnamon, Pepper, Saffron",
-      notes: ["Cardamom", "Cinnamon", "Pepper", "Nutmeg", "Saffron", "Clove", "Pink Pepper"] },
+      notes: ["Cardamom", "Cinnamon", "Pepper", "Nutmeg", "Saffron", "Clove", "Pink Pepper"],
+      helpText: "Spicy notes add warmth, texture, and movement. They often make a fragrance feel lively, sensual, and a little more daring." },
     { id: "sweet",    label: "Sweet & Gourmand",   desc: "Vanilla, Tonka, Caramel, Rum",
-      notes: ["Vanilla", "Tonka Bean", "Caramel", "Rum", "Chocolate", "Honey"] },
+      notes: ["Vanilla", "Tonka Bean", "Caramel", "Rum", "Chocolate", "Honey"],
+      helpText: "Sweet and gourmand notes smell edible, creamy, or dessert-like. Think cozy warmth, addictive sweetness, and a more indulgent mood." },
     { id: "fresh",    label: "Fresh & Aquatic",    desc: "Sea Notes, Mint, Green Leaves",
-      notes: ["Sea Notes", "Mint", "Green Leaves", "Apple", "Cucumber", "Juniper"] },
+      notes: ["Sea Notes", "Mint", "Green Leaves", "Apple", "Cucumber", "Juniper"],
+      helpText: "Fresh and aquatic notes feel cool, breezy, and clean. They suit people who like scents that smell airy, easygoing, and just-showered." },
     { id: "leather",  label: "Leather & Tobacco",  desc: "Suede, Tobacco, Smoke, Birch Tar",
-      notes: ["Leather", "Tobacco Leaf", "Smoke", "Suede", "Birch Tar"] },
+      notes: ["Leather", "Tobacco Leaf", "Smoke", "Suede", "Birch Tar"],
+      helpText: "Leather and tobacco notes feel rich, smoky, and textured. They often give a fragrance a darker, moodier, more dressed-up edge." },
     { id: "amber",    label: "Amber & Resin",      desc: "Amber, Incense, Benzoin, Myrrh",
-      notes: ["Amber", "Incense", "Benzoin", "Myrrh", "Fir Resin", "Styrax"] },
+      notes: ["Amber", "Incense", "Benzoin", "Myrrh", "Fir Resin", "Styrax"],
+      helpText: "Amber and resin notes feel glowing, smooth, and enveloping. They add depth and warmth with a slightly balsamic or incense-like feel." },
     { id: "animalic", label: "Animalic & Musk",    desc: "Musk, Civet, Ambergris, Ambroxan",
-      notes: ["Musk", "Civet", "Castoreum", "Ambrette", "Ambergris", "Ambroxan"] }
+      notes: ["Musk", "Civet", "Castoreum", "Ambrette", "Ambergris", "Ambroxan"],
+      helpText: "Animalic and musk notes feel skin-like, intimate, and sensual. They can make a fragrance feel warmer, deeper, and more magnetic." }
 ];
 
 // Broader scent accords — overarching fragrance families
 const ACCORD_PALETTE = [
-    "Oriental", "Chypre", "Fougère", "Aromatic", "Aquatic",
-    "Gourmand", "Fresh Clean", "Dark & Smoky", "Powdery", "Earthy"
+    {
+        label: "Oriental",
+        helpText: "Oriental accords are warm, plush, and opulent, often built around amber, spice, vanilla, or resins. They usually feel rich, sensual, and evening-leaning."
+    },
+    {
+        label: "Chypre",
+        helpText: "Chypre accords balance brightness with earthiness, often pairing citrus up top with mossy, woody depth. They feel polished, structured, and quietly elegant."
+    },
+    {
+        label: "Fougère",
+        helpText: "Fougere accords combine freshness with herbs, lavender, woods, and coumarin. They often smell clean, classic, and barbershop-inspired."
+    },
+    {
+        label: "Aromatic",
+        helpText: "Aromatic accords center on herbs and green freshness like lavender, rosemary, sage, or basil. They feel crisp, breezy, and effortlessly wearable."
+    },
+    {
+        label: "Aquatic",
+        helpText: "Aquatic accords evoke sea air, watery freshness, and cool movement. They usually smell airy, modern, and very clean."
+    },
+    {
+        label: "Gourmand",
+        helpText: "Gourmand accords lean edible, with tones like vanilla, caramel, cocoa, or coffee. They feel cozy, playful, and deliciously sweet."
+    },
+    {
+        label: "Fresh Clean",
+        helpText: "Fresh Clean accords focus on a crisp, just-showered effect. They usually feel light, uplifting, and easy to reach for every day."
+    },
+    {
+        label: "Dark & Smoky",
+        helpText: "Dark and smoky accords bring charred woods, incense, leather, or ember-like warmth. They feel bold, mysterious, and more dramatic."
+    },
+    {
+        label: "Powdery",
+        helpText: "Powdery accords feel soft, smooth, and cloud-like. They often create a refined, comforting finish with a clean skin or makeup-powder feel."
+    },
+    {
+        label: "Earthy",
+        helpText: "Earthy accords highlight soil, moss, roots, patchouli, or damp woods. They feel grounded, natural, and quietly rugged."
+    }
 ];
 
 const FALLBACK_FRAGRANCE_CATALOG = [
