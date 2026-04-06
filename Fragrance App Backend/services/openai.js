@@ -4,10 +4,11 @@ const {
   sanitizeScentCandidateResponse,
   sanitizeUsageInterpretation
 } = require("../taxonomy");
+const { buildTranscriptionResult } = require("./transcription");
 
 const OPENAI_API_BASE = "https://api.openai.com/v1";
 const DEFAULT_INTERPRET_MODEL = "gpt-5-mini";
-const DEFAULT_TRANSCRIBE_MODEL = "gpt-4o-mini-transcribe";
+const DEFAULT_TRANSCRIBE_MODEL = "gpt-4o-transcribe";
 
 class OpenAiServiceError extends Error {
   constructor(message, { status = 500, code = "LLM_REQUEST_FAILED", details = null } = {}) {
@@ -278,7 +279,15 @@ async function transcribeAudio(file, { language = "en", fallbackDurationMs = nul
   formData.append("file", file, file && file.name ? file.name : "dictation.webm");
   formData.append("model", config.transcribeModel);
   formData.append("language", language);
-  formData.append("response_format", "text");
+  formData.append("response_format", "json");
+  formData.append(
+    "prompt",
+    [
+      "Transcribe the spoken words verbatim in English.",
+      "Preserve short fragrance phrases like cedar forest, tobacco leaf, fresh out of the shower, warm smoky vanilla.",
+      "Do not invent filler words or repeated words unless they were clearly spoken."
+    ].join(" ")
+  );
 
   const response = await fetch(`${OPENAI_API_BASE}/audio/transcriptions`, {
     method: "POST",
@@ -289,18 +298,17 @@ async function transcribeAudio(file, { language = "en", fallbackDurationMs = nul
   });
 
   const rawBody = await response.text();
+  let payload = null;
+
+  if (rawBody) {
+    try {
+      payload = JSON.parse(rawBody);
+    } catch (error) {
+      payload = null;
+    }
+  }
 
   if (!response.ok) {
-    let payload = null;
-
-    if (rawBody) {
-      try {
-        payload = JSON.parse(rawBody);
-      } catch (error) {
-        payload = null;
-      }
-    }
-
     const upstreamMessage = payload && payload.error && payload.error.message
       ? payload.error.message
       : "OpenAI transcription failed.";
@@ -315,13 +323,14 @@ async function transcribeAudio(file, { language = "en", fallbackDurationMs = nul
     });
   }
 
-  return {
-    text: String(rawBody || "").trim(),
+  const rawTranscriptText = payload && typeof payload.text === "string"
+    ? payload.text
+    : "";
+
+  return buildTranscriptionResult(rawTranscriptText, {
     source: "openai_transcription",
-    durationMs: Number.isFinite(Number(fallbackDurationMs))
-      ? Math.max(0, Math.round(Number(fallbackDurationMs)))
-      : null
-  };
+    durationMs: fallbackDurationMs
+  });
 }
 
 module.exports = {

@@ -88,8 +88,6 @@ const state = {
     latestArchetype: null
 };
 
-const OFFLINE_AUTOCOMPLETE_COPY = 'Live search is unavailable offline. Use the starter picks below or type a fragrance manually.';
-
 const authState = {
     isLoggedIn: false,
     mode: 'signup',
@@ -123,6 +121,43 @@ const profileFilters = {
     family: 'all'
 };
 
+const GUEST_EXPERIENCE_STORAGE_KEY = 'maison_daura_guest_experience_v1';
+const DEFAULT_RESULTS_VISIBLE_COUNT = 5;
+const RESULTS_VISIBLE_INCREMENT = 4;
+const MAX_COMPARE_ITEMS = 3;
+const GUEST_FEEDBACK_VALUES = ['love', 'maybe', 'pass'];
+const RESULTS_REFINE_OPTIONS = [
+    { id: 'default', label: 'Best Match' },
+    { id: 'cheaper', label: 'Cheaper' },
+    { id: 'stronger', label: 'Stronger' },
+    { id: 'office', label: 'Office-Safe' },
+    { id: 'less-sweet', label: 'Less Sweet' },
+    { id: 'unique', label: 'More Unique' }
+];
+
+function createEmptyGuestExperienceState() {
+    return {
+        latestProfile: null,
+        latestRecommendationIds: [],
+        latestArchetypeTitle: '',
+        shortlistIds: [],
+        compareIds: [],
+        feedbackById: {},
+        currentStep: 1,
+        activeViewId: 'wizard-view'
+    };
+}
+
+const guestExperienceState = createEmptyGuestExperienceState();
+const resultsViewState = {
+    recommendationPool: [],
+    activeRefine: 'default',
+    visibleCount: DEFAULT_RESULTS_VISIBLE_COUNT,
+    detailFragranceId: ''
+};
+
+let guestPersistenceTimerId = 0;
+
 let syncUsageIntentStepState = () => {};
 let clearUsageIntentStepTimers = () => {};
 let dismissScentProfileHelp = () => {};
@@ -134,6 +169,163 @@ let currentStep = 1;
 const totalSteps = 3;
 
 const engine = new OlfactoryEngine(fragranceDB, ARCHETYPES);
+
+function clampWizardStep(value) {
+    const numericValue = Number.parseInt(value, 10);
+    if (!Number.isInteger(numericValue)) {
+        return 1;
+    }
+
+    return Math.max(1, Math.min(totalSteps, numericValue));
+}
+
+function normalizeStoredIdList(values) {
+    if (!Array.isArray(values)) {
+        return [];
+    }
+
+    return [...new Set(values.map(value => String(value || '').trim()).filter(Boolean))];
+}
+
+function normalizeGuestFeedbackMap(value) {
+    if (!value || typeof value !== 'object') {
+        return {};
+    }
+
+    return Object.fromEntries(
+        Object.entries(value)
+            .map(([id, feedback]) => [String(id || '').trim(), String(feedback || '').trim()])
+            .filter(([id, feedback]) => id && GUEST_FEEDBACK_VALUES.includes(feedback))
+    );
+}
+
+function getGuestStorage() {
+    try {
+        return window.localStorage;
+    } catch (error) {
+        return null;
+    }
+}
+
+function applyGuestExperiencePayload(payload = {}) {
+    guestExperienceState.latestProfile = payload.latestProfile && typeof payload.latestProfile === 'object'
+        ? { ...payload.latestProfile }
+        : null;
+    guestExperienceState.latestRecommendationIds = normalizeStoredIdList(payload.latestRecommendationIds);
+    guestExperienceState.latestArchetypeTitle = isRecognizedArchetypeTitle(payload.latestArchetypeTitle)
+        ? payload.latestArchetypeTitle
+        : '';
+    guestExperienceState.shortlistIds = normalizeStoredIdList(payload.shortlistIds);
+    guestExperienceState.compareIds = normalizeStoredIdList(payload.compareIds).slice(0, MAX_COMPARE_ITEMS);
+    guestExperienceState.feedbackById = normalizeGuestFeedbackMap(payload.feedbackById);
+    guestExperienceState.currentStep = clampWizardStep(payload.currentStep);
+    guestExperienceState.activeViewId = VIEW_IDS.includes(payload.activeViewId) && payload.activeViewId !== 'loading-view'
+        ? payload.activeViewId
+        : 'wizard-view';
+}
+
+function buildGuestExperiencePayload() {
+    return {
+        latestProfile: hasLatestProfileContent() ? buildLatestProfileSnapshot() : null,
+        latestRecommendationIds: state.latestRecommendations.map(fragrance => fragrance.id),
+        latestArchetypeTitle: state.latestArchetype && isRecognizedArchetypeTitle(state.latestArchetype.title)
+            ? state.latestArchetype.title
+            : '',
+        shortlistIds: [...guestExperienceState.shortlistIds],
+        compareIds: [...guestExperienceState.compareIds],
+        feedbackById: { ...guestExperienceState.feedbackById },
+        currentStep,
+        activeViewId: viewState.activeViewId === 'loading-view' ? 'wizard-view' : viewState.activeViewId
+    };
+}
+
+function persistGuestExperience({ immediate = false } = {}) {
+    if (authState.isLoggedIn) {
+        return;
+    }
+
+    const storage = getGuestStorage();
+    if (!storage) return;
+
+    const commit = () => {
+        guestPersistenceTimerId = 0;
+        const payload = buildGuestExperiencePayload();
+        applyGuestExperiencePayload(payload);
+
+        try {
+            storage.setItem(GUEST_EXPERIENCE_STORAGE_KEY, JSON.stringify(payload));
+        } catch (error) {
+            console.warn('Unable to persist the guest experience locally.', error);
+        }
+    };
+
+    if (guestPersistenceTimerId) {
+        window.clearTimeout(guestPersistenceTimerId);
+        guestPersistenceTimerId = 0;
+    }
+
+    if (immediate) {
+        commit();
+        return;
+    }
+
+    guestPersistenceTimerId = window.setTimeout(commit, 120);
+}
+
+function clearGuestDraftState() {
+    guestExperienceState.latestProfile = null;
+    guestExperienceState.latestRecommendationIds = [];
+    guestExperienceState.latestArchetypeTitle = '';
+    guestExperienceState.compareIds = [];
+    guestExperienceState.currentStep = 1;
+    guestExperienceState.activeViewId = 'wizard-view';
+    resultsViewState.recommendationPool = [];
+    resultsViewState.activeRefine = 'default';
+    resultsViewState.visibleCount = DEFAULT_RESULTS_VISIBLE_COUNT;
+    resultsViewState.detailFragranceId = '';
+}
+
+function restoreGuestExperience() {
+    if (authState.isLoggedIn) {
+        return;
+    }
+
+    const storage = getGuestStorage();
+    if (!storage) return;
+
+    try {
+        const rawPayload = storage.getItem(GUEST_EXPERIENCE_STORAGE_KEY);
+        if (!rawPayload) {
+            return;
+        }
+
+        const parsedPayload = JSON.parse(rawPayload);
+        applyGuestExperiencePayload(parsedPayload);
+
+        if (guestExperienceState.latestProfile) {
+            applyLatestProfileSnapshot(guestExperienceState.latestProfile);
+        }
+
+        state.latestRecommendations = guestExperienceState.latestRecommendationIds
+            .map(findFragranceById)
+            .filter(Boolean);
+        state.latestArchetype = createArchetypeFromTitle(guestExperienceState.latestArchetypeTitle);
+        currentStep = guestExperienceState.currentStep;
+
+        syncWizardStateToUI();
+        updateWizardUI();
+        primeResultsExperience();
+
+        if (
+            guestExperienceState.activeViewId !== 'wizard-view'
+            && (state.latestRecommendations.length > 0 || guestExperienceState.shortlistIds.length > 0)
+        ) {
+            setActiveView(guestExperienceState.activeViewId);
+        }
+    } catch (error) {
+        console.warn('Unable to restore the guest experience from local storage.', error);
+    }
+}
 
 function isRecognizedArchetypeTitle(title) {
     return Boolean(title && Object.prototype.hasOwnProperty.call(ARCHETYPES, title));
@@ -152,7 +344,7 @@ function getBackendIssueDetails(error) {
 
     return {
         bannerTitle: 'Backend Connection Required',
-        bannerCopy: 'Live search, saved profile hydration, and recommendations need the local backend running on http://localhost:3001.',
+        bannerCopy: 'Saved profile hydration and account-backed features need the local backend running on http://localhost:3001.',
         resultsTitle: 'Backend Connection Required',
         resultsCopy: 'Recommendations are unavailable until the local backend is running on http://localhost:3001.',
         autocompleteCopy: 'Search is unavailable until the backend is running.'
@@ -237,6 +429,854 @@ function getBlindBuyBadge(value) {
     };
 }
 
+function escapeHtml(value) {
+    return String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+function getFragranceVibeLabel(fragrance) {
+    const explicitVibe = String(fragrance && fragrance.vibe ? fragrance.vibe : '').trim();
+    if (explicitVibe) {
+        return explicitVibe;
+    }
+
+    const noteFamilies = Array.isArray(fragrance && fragrance.noteFamilies) ? fragrance.noteFamilies : [];
+    const accordTags = Array.isArray(fragrance && fragrance.accordTags)
+        ? fragrance.accordTags.map(tag => String(tag || '').toLowerCase())
+        : [];
+
+    if (
+        noteFamilies.includes('fresh')
+        || noteFamilies.includes('citrus')
+        || accordTags.some(tag => tag.includes('fresh') || tag.includes('aquatic'))
+    ) {
+        return 'Fresh & Clean';
+    }
+
+    if (
+        noteFamilies.includes('sweet')
+        || noteFamilies.includes('amber')
+        || accordTags.some(tag => tag.includes('gourmand') || tag.includes('oriental'))
+    ) {
+        return 'Warm & Sweet';
+    }
+
+    if (
+        noteFamilies.includes('woody')
+        || noteFamilies.includes('leather')
+        || accordTags.some(tag => tag.includes('dark') || tag.includes('earthy'))
+    ) {
+        return 'Woody & Dark';
+    }
+
+    if (noteFamilies.includes('floral')) {
+        return 'Soft & Floral';
+    }
+
+    if (noteFamilies.includes('spicy')) {
+        return 'Spiced & Bold';
+    }
+
+    return 'Signature Ready';
+}
+
+function getFragranceAllNotes(fragrance) {
+    return [
+        ...((fragrance && fragrance.notes && fragrance.notes.top) || []),
+        ...((fragrance && fragrance.notes && fragrance.notes.heart) || []),
+        ...((fragrance && fragrance.notes && fragrance.notes.base) || [])
+    ];
+}
+
+function getFragranceMatchScore(fragrance) {
+    return Number.isFinite(fragrance && fragrance.matchScore) ? fragrance.matchScore : 0;
+}
+
+function getFragrancePowerScore(fragrance) {
+    if (!isDisplayNumber(fragrance && fragrance.longevityScore) || !isDisplayNumber(fragrance && fragrance.sillageScore)) {
+        return 0;
+    }
+
+    return ((fragrance.longevityScore + fragrance.sillageScore) / 2) * 10;
+}
+
+function getFragranceSweetnessWeight(fragrance) {
+    const noteFamilies = Array.isArray(fragrance && fragrance.noteFamilies) ? fragrance.noteFamilies : [];
+    const accordTags = Array.isArray(fragrance && fragrance.accordTags)
+        ? fragrance.accordTags.map(tag => String(tag || '').toLowerCase())
+        : [];
+    const vibeLabel = getFragranceVibeLabel(fragrance).toLowerCase();
+    let weight = 0;
+
+    if (noteFamilies.includes('sweet')) weight += 14;
+    if (noteFamilies.includes('amber')) weight += 8;
+    if (accordTags.includes('gourmand')) weight += 14;
+    if (accordTags.includes('oriental')) weight += 8;
+    if (vibeLabel.includes('sweet') || vibeLabel.includes('warm')) weight += 5;
+
+    return weight;
+}
+
+function isOfficeFriendlyFragrance(fragrance) {
+    const occasions = Array.isArray(fragrance && fragrance.occasionTags) ? fragrance.occasionTags : [];
+    return occasions.includes('Office')
+        || occasions.includes('Everyday/Signature')
+        || (getFragrancePowerScore(fragrance) <= 78 && Number(fragrance && fragrance.blindBuyScore) >= 68);
+}
+
+function getFragranceUniquenessScore(fragrance) {
+    const accordTags = Array.isArray(fragrance && fragrance.accordTags) ? fragrance.accordTags : [];
+    let score = 100 - (isDisplayNumber(fragrance && fragrance.blindBuyScore) ? fragrance.blindBuyScore : 65);
+
+    if (accordTags.includes('Powdery')) score += 8;
+    if (accordTags.includes('Earthy')) score += 7;
+    if (accordTags.includes('Dark & Smoky')) score += 9;
+    if (accordTags.includes('Leather')) score += 6;
+    if (String(fragrance && fragrance.archetype || '').includes('Modern')) score += 6;
+    if (String(fragrance && fragrance.archetype || '').includes('Provocateur')) score += 5;
+
+    return score;
+}
+
+function getResultConfidenceLabel(matchScore) {
+    if (matchScore >= 215) return 'Signature Match';
+    if (matchScore >= 180) return 'Strong Fit';
+    if (matchScore >= 145) return 'Worth Sampling';
+    return 'Exploratory Pick';
+}
+
+function getPreferredFragranceIds(fragrances) {
+    if (!Array.isArray(fragrances)) {
+        return [];
+    }
+
+    return fragrances
+        .map(fragrance => String(fragrance && fragrance.id ? fragrance.id : '').trim())
+        .filter(Boolean);
+}
+
+function reorderPoolByPreferredIds(pool, preferredIds) {
+    const preferredIndex = new Map(preferredIds.map((id, index) => [id, index]));
+
+    return pool
+        .map((fragrance, originalIndex) => ({ fragrance, originalIndex }))
+        .sort((left, right) => {
+            const leftPreferredIndex = preferredIndex.has(left.fragrance.id)
+                ? preferredIndex.get(left.fragrance.id)
+                : Number.MAX_SAFE_INTEGER;
+            const rightPreferredIndex = preferredIndex.has(right.fragrance.id)
+                ? preferredIndex.get(right.fragrance.id)
+                : Number.MAX_SAFE_INTEGER;
+
+            return leftPreferredIndex - rightPreferredIndex || left.originalIndex - right.originalIndex;
+        })
+        .map(({ fragrance }) => fragrance);
+}
+
+function primeResultsExperience(preferredFragrances = state.latestRecommendations) {
+    const preferredIds = getPreferredFragranceIds(preferredFragrances);
+    let recommendationPool = Array.isArray(engine.database) && engine.database.length > 0
+        ? engine.calculateRecommendationPool(state)
+        : [];
+
+    if (recommendationPool.length > 0 && preferredIds.length > 0) {
+        recommendationPool = reorderPoolByPreferredIds(recommendationPool, preferredIds);
+    }
+
+    if (recommendationPool.length === 0) {
+        recommendationPool = Array.isArray(preferredFragrances)
+            ? preferredFragrances.map(fragrance => ({
+                ...fragrance,
+                matchScore: getFragranceMatchScore(fragrance),
+                matchLog: Array.isArray(fragrance && fragrance.matchLog) ? [...fragrance.matchLog] : []
+            }))
+            : [];
+    }
+
+    resultsViewState.recommendationPool = recommendationPool;
+    resultsViewState.activeRefine = 'default';
+    resultsViewState.visibleCount = DEFAULT_RESULTS_VISIBLE_COUNT;
+
+    if (
+        resultsViewState.detailFragranceId
+        && !recommendationPool.some(fragrance => fragrance.id === resultsViewState.detailFragranceId)
+    ) {
+        resultsViewState.detailFragranceId = '';
+    }
+}
+
+function getGuestShortlistFragrances() {
+    return guestExperienceState.shortlistIds
+        .map(findFragranceById)
+        .filter(Boolean);
+}
+
+function isGuestShortlisted(id) {
+    return guestExperienceState.shortlistIds.includes(id);
+}
+
+function isCompared(id) {
+    return guestExperienceState.compareIds.includes(id);
+}
+
+function getGuestFeedback(id) {
+    return guestExperienceState.feedbackById[id] || '';
+}
+
+function toggleGuestShortlist(id) {
+    if (!id || !findFragranceById(id)) {
+        return false;
+    }
+
+    guestExperienceState.shortlistIds = isGuestShortlisted(id)
+        ? guestExperienceState.shortlistIds.filter(currentId => currentId !== id)
+        : [...guestExperienceState.shortlistIds, id];
+
+    persistGuestExperience({ immediate: true });
+    return true;
+}
+
+function toggleCompare(id) {
+    if (!id || !findFragranceById(id)) {
+        return false;
+    }
+
+    if (isCompared(id)) {
+        guestExperienceState.compareIds = guestExperienceState.compareIds.filter(currentId => currentId !== id);
+    } else {
+        const nextIds = [...guestExperienceState.compareIds, id];
+        guestExperienceState.compareIds = nextIds.slice(-MAX_COMPARE_ITEMS);
+    }
+
+    persistGuestExperience({ immediate: true });
+    return true;
+}
+
+function setGuestFeedback(id, value) {
+    if (!id || !findFragranceById(id)) {
+        return false;
+    }
+
+    const normalizedValue = GUEST_FEEDBACK_VALUES.includes(value) ? value : '';
+    const nextFeedback = { ...guestExperienceState.feedbackById };
+
+    if (!normalizedValue || nextFeedback[id] === normalizedValue) {
+        delete nextFeedback[id];
+    } else {
+        nextFeedback[id] = normalizedValue;
+    }
+
+    guestExperienceState.feedbackById = nextFeedback;
+    persistGuestExperience({ immediate: true });
+    return true;
+}
+
+function getGuestSavedRecommendationIdsForMerge() {
+    return [...new Set([
+        ...guestExperienceState.shortlistIds,
+        ...Object.entries(guestExperienceState.feedbackById)
+            .filter(([, feedback]) => feedback === 'love')
+            .map(([id]) => id)
+    ])];
+}
+
+function getActiveResultsPool() {
+    const recommendationPool = Array.isArray(resultsViewState.recommendationPool)
+        ? resultsViewState.recommendationPool.filter(Boolean)
+        : [];
+
+    if (recommendationPool.length > 0) {
+        return recommendationPool;
+    }
+
+    return Array.isArray(state.latestRecommendations)
+        ? state.latestRecommendations.filter(Boolean)
+        : [];
+}
+
+function getRefinedRecommendationPool() {
+    const activePool = [...getActiveResultsPool()];
+
+    if (activePool.length === 0) {
+        return [];
+    }
+
+    const passedIds = new Set(
+        Object.entries(guestExperienceState.feedbackById)
+            .filter(([, feedback]) => feedback === 'pass')
+            .map(([id]) => id)
+    );
+    const nonPassed = activePool.filter(fragrance => !passedIds.has(fragrance.id));
+    const basePool = nonPassed.length >= Math.min(DEFAULT_RESULTS_VISIBLE_COUNT, activePool.length)
+        ? [...nonPassed, ...activePool.filter(fragrance => passedIds.has(fragrance.id))]
+        : activePool;
+    const sortByMatch = (left, right) => (
+        getFragranceMatchScore(right) - getFragranceMatchScore(left)
+        || String(left.house || '').localeCompare(String(right.house || ''))
+        || String(left.name || '').localeCompare(String(right.name || ''))
+    );
+
+    switch (resultsViewState.activeRefine) {
+    case 'cheaper':
+        return basePool.sort((left, right) => (
+            Number(left.priceTier || 99) - Number(right.priceTier || 99)
+            || sortByMatch(left, right)
+        ));
+    case 'stronger':
+        return basePool.sort((left, right) => (
+            getFragrancePowerScore(right) - getFragrancePowerScore(left)
+            || sortByMatch(left, right)
+        ));
+    case 'office':
+        return basePool.sort((left, right) => (
+            Number(isOfficeFriendlyFragrance(right)) - Number(isOfficeFriendlyFragrance(left))
+            || sortByMatch(left, right)
+        ));
+    case 'less-sweet':
+        return basePool.sort((left, right) => (
+            getFragranceSweetnessWeight(left) - getFragranceSweetnessWeight(right)
+            || sortByMatch(left, right)
+        ));
+    case 'unique':
+        return basePool.sort((left, right) => (
+            getFragranceUniquenessScore(right) - getFragranceUniquenessScore(left)
+            || sortByMatch(left, right)
+        ));
+    default:
+        return basePool.sort(sortByMatch);
+    }
+}
+
+function getActiveRefineNote() {
+    switch (resultsViewState.activeRefine) {
+    case 'cheaper':
+        return 'Budget-first sorting favors lower tiers before match score takes over.';
+    case 'stronger':
+        return 'Projection and longevity are taking priority in this pass.';
+    case 'office':
+        return 'Everyday-safe and office-friendly fragrances are floating to the top.';
+    case 'less-sweet':
+        return 'Sweeter, richer picks are being pushed down in favor of drier options.';
+    case 'unique':
+        return 'More distinctive, less universally safe profiles are getting the spotlight.';
+    default:
+        return 'Use a refine chip to nudge this set without restarting the wizard.';
+    }
+}
+
+function addReasonIfNeeded(reasons, copy) {
+    if (!copy || reasons.includes(copy) || reasons.length >= 3) {
+        return;
+    }
+
+    reasons.push(copy);
+}
+
+function buildFragranceReasonList(fragrance) {
+    const reasons = [];
+    const matchLog = Array.isArray(fragrance && fragrance.matchLog) ? fragrance.matchLog : [];
+
+    matchLog.forEach((entry) => {
+        let match = null;
+
+        if (entry.includes('Favorite fragrance match')) {
+            addReasonIfNeeded(reasons, 'Echoes one of your current favorite fragrances.');
+            return;
+        }
+
+        match = entry.match(/Favorite profile family match \(([^)]+)\)/);
+        if (match) {
+            addReasonIfNeeded(reasons, `Shares the ${getFamilyLabel(match[1])} profile of something you already enjoy.`);
+            return;
+        }
+
+        match = entry.match(/Note family match \(([^)]+)\)/);
+        if (match) {
+            addReasonIfNeeded(reasons, `Matches your ${getFamilyLabel(match[1])} direction.`);
+            return;
+        }
+
+        match = entry.match(/Specific note match \(([^)]+)\)/);
+        if (match) {
+            addReasonIfNeeded(reasons, `Features ${match[1]} in the composition.`);
+            return;
+        }
+
+        match = entry.match(/Accord match \(([^)]+)\)/);
+        if (match) {
+            addReasonIfNeeded(reasons, `Carries the ${match[1]} feel you selected.`);
+            return;
+        }
+
+        match = entry.match(/Occasion match \(([^)]+)\)/);
+        if (match) {
+            addReasonIfNeeded(reasons, `Built for ${match[1].toLowerCase()}.`);
+            return;
+        }
+
+        match = entry.match(/Climate match \(([^)]+?)(?: -> [^)]+)?\)/);
+        if (match) {
+            addReasonIfNeeded(reasons, `Comfortable for ${match[1].toLowerCase()} conditions.`);
+            return;
+        }
+
+        if (entry.includes('Usage description match')) {
+            addReasonIfNeeded(reasons, 'Fits the wear scenario you described.');
+            return;
+        }
+
+        if (entry.includes('Perfect performance match')) {
+            addReasonIfNeeded(reasons, 'Lands very close to your projection target.');
+            return;
+        }
+
+        if (entry.includes('Good performance match')) {
+            addReasonIfNeeded(reasons, 'Stays near your projection target.');
+            return;
+        }
+
+        if (entry.includes('Exact budget match')) {
+            addReasonIfNeeded(reasons, 'Sits right on your current budget target.');
+            return;
+        }
+
+        if (entry.includes('Under budget')) {
+            addReasonIfNeeded(reasons, 'Comes in under your current budget target.');
+        }
+    });
+
+    const selectedNoteMatches = state.selectedNotes
+        .filter((note) => getFragranceAllNotes(fragrance).some(
+            fragranceNote => String(fragranceNote || '').toLowerCase() === String(note || '').toLowerCase()
+        ))
+        .slice(0, 2);
+
+    if (selectedNoteMatches.length > 0) {
+        addReasonIfNeeded(reasons, `Includes your picked note${selectedNoteMatches.length > 1 ? 's' : ''}: ${selectedNoteMatches.join(', ')}.`);
+    }
+
+    if (reasons.length === 0) {
+        addReasonIfNeeded(reasons, `Leans ${getFragranceVibeLabel(fragrance).toLowerCase()} in the overall profile.`);
+    }
+
+    if (reasons.length === 1 && fragrance && fragrance.archetype) {
+        addReasonIfNeeded(reasons, `Maps to the ${fragrance.archetype.toLowerCase()} archetype family.`);
+    }
+
+    return reasons.slice(0, 3);
+}
+
+function buildBudgetTakeaway(fragrance) {
+    if (!Number.isInteger(fragrance && fragrance.priceTier)) {
+        return 'Budget data is unavailable for this fragrance.';
+    }
+
+    if (fragrance.priceTier > state.budget) {
+        return `Runs above your ${formatPriceTier(state.budget)} target, but the scent profile kept it in the mix.`;
+    }
+
+    if (fragrance.priceTier === state.budget) {
+        return `Right on your current ${formatPriceTier(state.budget)} budget target.`;
+    }
+
+    return `Comes in under your current ${formatPriceTier(state.budget)} budget target.`;
+}
+
+function buildPerformanceTakeaway(fragrance) {
+    const powerScore = getFragrancePowerScore(fragrance);
+    const difference = Math.abs(powerScore - state.performance);
+
+    if (difference <= 15) {
+        return 'Very close to the projection level you asked for.';
+    }
+
+    if (difference <= 30) {
+        return powerScore > state.performance
+            ? 'Projects a bit louder than your target.'
+            : 'Sits a touch softer than your target.';
+    }
+
+    return powerScore > state.performance
+        ? 'Leans much stronger than your requested projection.'
+        : 'Leans much quieter than your requested projection.';
+}
+
+function buildBestForCopy(fragrance) {
+    const occasions = Array.isArray(fragrance && fragrance.occasionTags) ? fragrance.occasionTags.slice(0, 2) : [];
+    const seasons = Array.isArray(fragrance && fragrance.seasonTags) ? fragrance.seasonTags.slice(0, 2) : [];
+
+    if (occasions.length > 0 && seasons.length > 0) {
+        return `${occasions.join(' or ')} in ${seasons.join(' and ')}.`;
+    }
+
+    if (occasions.length > 0) {
+        return occasions.join(' or ') + '.';
+    }
+
+    if (seasons.length > 0) {
+        return seasons.join(' and ') + '.';
+    }
+
+    return 'Flexible wear across several settings.';
+}
+
+function buildNotIdealForCopy(fragrance) {
+    const powerScore = getFragrancePowerScore(fragrance);
+    const sweetnessWeight = getFragranceSweetnessWeight(fragrance);
+
+    if (powerScore >= 88) {
+        return 'Very quiet settings where you want almost no trail.';
+    }
+
+    if (sweetnessWeight >= 24) {
+        return 'Moments when you want something especially dry or crisp.';
+    }
+
+    if (!isOfficeFriendlyFragrance(fragrance)) {
+        return 'Safe everyday office wear when you want the least polarizing option.';
+    }
+
+    return 'Any moment that calls for the absolute safest blind reach.';
+}
+
+function buildResultInsight(fragrance) {
+    return {
+        confidenceLabel: getResultConfidenceLabel(getFragranceMatchScore(fragrance)),
+        scoreLabel: `Match ${Math.round(getFragranceMatchScore(fragrance))}`,
+        reasons: buildFragranceReasonList(fragrance),
+        budgetTakeaway: buildBudgetTakeaway(fragrance),
+        performanceTakeaway: buildPerformanceTakeaway(fragrance),
+        bestFor: buildBestForCopy(fragrance),
+        notIdealFor: buildNotIdealForCopy(fragrance)
+    };
+}
+
+function findResultFragranceById(id) {
+    return getActiveResultsPool().find(fragrance => fragrance.id === id)
+        || state.latestRecommendations.find(fragrance => fragrance.id === id)
+        || findFragranceById(id);
+}
+
+function renderResultsUtilityPanel() {
+    const panel = document.getElementById('results-utility-panel');
+    const meta = document.getElementById('results-utility-meta');
+    const refineRow = document.getElementById('results-refine-row');
+    const refineNote = document.getElementById('results-refine-note');
+    const collection = document.getElementById('results-guest-collection');
+    const compareTray = document.getElementById('results-compare-tray');
+
+    if (!panel || !meta || !refineRow || !refineNote || !collection || !compareTray) {
+        return;
+    }
+
+    const refinedPool = getRefinedRecommendationPool();
+    const visibleCount = Math.min(resultsViewState.visibleCount, refinedPool.length);
+    const shortlistCount = guestExperienceState.shortlistIds.length;
+    const compareCount = guestExperienceState.compareIds.length;
+    const loveCount = Object.values(guestExperienceState.feedbackById).filter(value => value === 'love').length;
+    const maybeCount = Object.values(guestExperienceState.feedbackById).filter(value => value === 'maybe').length;
+    const passCount = Object.values(guestExperienceState.feedbackById).filter(value => value === 'pass').length;
+
+    if (refinedPool.length === 0) {
+        panel.hidden = true;
+        compareTray.hidden = true;
+        compareTray.innerHTML = '';
+        return;
+    }
+
+    panel.hidden = false;
+    meta.innerText = `Showing ${visibleCount} of ${refinedPool.length} local matches`;
+
+    refineRow.innerHTML = `
+        ${RESULTS_REFINE_OPTIONS.map((option) => `
+            <button
+                type="button"
+                class="results-utility-btn${resultsViewState.activeRefine === option.id ? ' active' : ''}"
+                data-refine="${option.id}"
+            >
+                ${option.label}
+            </button>
+        `).join('')}
+        ${visibleCount < refinedPool.length ? `
+            <button type="button" class="results-utility-btn secondary" data-results-action="show-more">
+                Show More
+            </button>
+        ` : ''}
+        ${(resultsViewState.activeRefine !== 'default' || resultsViewState.visibleCount > DEFAULT_RESULTS_VISIBLE_COUNT) ? `
+            <button type="button" class="results-utility-btn secondary" data-results-action="reset">
+                Reset View
+            </button>
+        ` : ''}
+    `;
+
+    refineRow.querySelectorAll('[data-refine]').forEach((button) => {
+        button.addEventListener('click', () => {
+            resultsViewState.activeRefine = button.getAttribute('data-refine') || 'default';
+            resultsViewState.visibleCount = DEFAULT_RESULTS_VISIBLE_COUNT;
+            renderResultsCards(state.latestRecommendations);
+        });
+    });
+
+    refineRow.querySelectorAll('[data-results-action]').forEach((button) => {
+        button.addEventListener('click', () => {
+            const action = button.getAttribute('data-results-action');
+
+            if (action === 'show-more') {
+                resultsViewState.visibleCount += RESULTS_VISIBLE_INCREMENT;
+            } else if (action === 'reset') {
+                resultsViewState.activeRefine = 'default';
+                resultsViewState.visibleCount = DEFAULT_RESULTS_VISIBLE_COUNT;
+            }
+
+            renderResultsCards(state.latestRecommendations);
+        });
+    });
+
+    refineNote.innerText = getActiveRefineNote();
+    collection.innerHTML = `
+        <div class="results-collection-stat">
+            <span class="results-collection-label">Shortlist</span>
+            <strong>${shortlistCount}</strong>
+        </div>
+        <div class="results-collection-stat">
+            <span class="results-collection-label">Compare</span>
+            <strong>${compareCount}</strong>
+        </div>
+        <div class="results-collection-stat">
+            <span class="results-collection-label">Love</span>
+            <strong>${loveCount}</strong>
+        </div>
+        <div class="results-collection-stat">
+            <span class="results-collection-label">Maybe</span>
+            <strong>${maybeCount}</strong>
+        </div>
+        <div class="results-collection-stat">
+            <span class="results-collection-label">Pass</span>
+            <strong>${passCount}</strong>
+        </div>
+    `;
+
+    const comparedFragrances = guestExperienceState.compareIds
+        .map(findResultFragranceById)
+        .filter(Boolean);
+
+    if (comparedFragrances.length === 0) {
+        compareTray.hidden = true;
+        compareTray.innerHTML = '';
+        return;
+    }
+
+    compareTray.hidden = false;
+    compareTray.innerHTML = `
+        <div class="results-utility-header">
+            <div>
+                <p class="profile-panel-label">Compare Tray</p>
+                <h3 class="profile-panel-title">Side-by-side shortlist</h3>
+            </div>
+            <p class="profile-panel-meta">Up to ${MAX_COMPARE_ITEMS} live comparison picks</p>
+        </div>
+        <div class="compare-tray-grid">
+            ${comparedFragrances.map((fragrance) => `
+                <article class="compare-mini-card">
+                    <div>
+                        <p class="compare-mini-house">${escapeHtml(fragrance.house)}</p>
+                        <h4 class="compare-mini-name">${escapeHtml(fragrance.name)}</h4>
+                    </div>
+                    <div class="compare-mini-meta">
+                        <span>${formatPriceTier(fragrance.priceTier)}</span>
+                        <span>Power ${Math.round(getFragrancePowerScore(fragrance))}</span>
+                        <span>Blind Buy ${formatBlindBuyMetric(fragrance.blindBuyScore)}</span>
+                    </div>
+                    <button type="button" class="btn-ghost btn-sm compare-mini-remove" data-compare-remove="${fragrance.id}">
+                        Remove
+                    </button>
+                </article>
+            `).join('')}
+        </div>
+    `;
+
+    compareTray.querySelectorAll('[data-compare-remove]').forEach((button) => {
+        button.addEventListener('click', () => {
+            toggleCompare(button.getAttribute('data-compare-remove'));
+            renderResultsCards(state.latestRecommendations);
+        });
+    });
+}
+
+function renderFragranceDetail(fragrance) {
+    const detailContent = document.getElementById('fragrance-detail-content');
+
+    if (!detailContent || !fragrance) {
+        return;
+    }
+
+    const insight = buildResultInsight(fragrance);
+    const dupe = Array.isArray(engine.database)
+        ? engine.database.find(candidate => candidate.dupeOf === fragrance.id && candidate.priceTier < fragrance.priceTier)
+        : null;
+    const renderNoteSection = (label, notes) => `
+        <div class="detail-note-group">
+            <span class="detail-note-label">${label}</span>
+            <div class="detail-chip-row">
+                ${(notes || []).length > 0
+                    ? notes.map(note => `<span class="dossier-reason-chip">${escapeHtml(note)}</span>`).join('')
+                    : '<span class="dossier-reason-chip subtle">Unavailable</span>'}
+            </div>
+        </div>
+    `;
+
+    detailContent.innerHTML = `
+        <div class="fragrance-detail-shell">
+            <div class="detail-hero">
+                <div>
+                    <p class="profile-panel-label">${escapeHtml(fragrance.house)}</p>
+                    <h2 class="profile-panel-title">${escapeHtml(fragrance.name)}</h2>
+                    <p class="detail-copy">${escapeHtml(getFragranceVibeLabel(fragrance))} • ${escapeHtml(insight.confidenceLabel)} • ${escapeHtml(insight.scoreLabel)}</p>
+                </div>
+                <div class="d-tier">${formatPriceTier(fragrance.priceTier)}</div>
+            </div>
+
+            <div class="detail-metric-grid">
+                <div class="dossier-takeaway">
+                    <span class="wizard-summary-label">Longevity</span>
+                    <strong>${formatMetricScore(fragrance.longevityScore)}</strong>
+                </div>
+                <div class="dossier-takeaway">
+                    <span class="wizard-summary-label">Sillage</span>
+                    <strong>${formatMetricScore(fragrance.sillageScore)}</strong>
+                </div>
+                <div class="dossier-takeaway">
+                    <span class="wizard-summary-label">Blind Buy</span>
+                    <strong>${formatBlindBuyMetric(fragrance.blindBuyScore)}</strong>
+                </div>
+                <div class="dossier-takeaway">
+                    <span class="wizard-summary-label">Power</span>
+                    <strong>${Math.round(getFragrancePowerScore(fragrance))}/100</strong>
+                </div>
+            </div>
+
+            <section class="detail-section">
+                <h3>Why It Matched</h3>
+                <div class="detail-chip-row">
+                    ${insight.reasons.map(reason => `<span class="dossier-reason-chip">${escapeHtml(reason)}</span>`).join('')}
+                </div>
+            </section>
+
+            <section class="detail-section">
+                <h3>Note Pyramid</h3>
+                <div class="detail-grid">
+                    ${renderNoteSection('Top', fragrance.notes && fragrance.notes.top)}
+                    ${renderNoteSection('Heart', fragrance.notes && fragrance.notes.heart)}
+                    ${renderNoteSection('Base', fragrance.notes && fragrance.notes.base)}
+                </div>
+            </section>
+
+            <section class="detail-section">
+                <h3>Where It Shines</h3>
+                <div class="detail-grid">
+                    <div class="dossier-takeaway">
+                        <span class="wizard-summary-label">Best For</span>
+                        <p>${escapeHtml(insight.bestFor)}</p>
+                    </div>
+                    <div class="dossier-takeaway">
+                        <span class="wizard-summary-label">Less Ideal For</span>
+                        <p>${escapeHtml(insight.notIdealFor)}</p>
+                    </div>
+                    <div class="dossier-takeaway">
+                        <span class="wizard-summary-label">Budget Read</span>
+                        <p>${escapeHtml(insight.budgetTakeaway)}</p>
+                    </div>
+                    <div class="dossier-takeaway">
+                        <span class="wizard-summary-label">Performance Read</span>
+                        <p>${escapeHtml(insight.performanceTakeaway)}</p>
+                    </div>
+                </div>
+            </section>
+
+            <section class="detail-section">
+                <h3>Seasons & Occasions</h3>
+                <div class="detail-grid">
+                    <div class="dossier-takeaway">
+                        <span class="wizard-summary-label">Seasons</span>
+                        <div class="detail-chip-row">
+                            ${(fragrance.seasonTags || []).map(tag => `<span class="dossier-reason-chip">${escapeHtml(tag)}</span>`).join('') || '<span class="dossier-reason-chip subtle">Unavailable</span>'}
+                        </div>
+                    </div>
+                    <div class="dossier-takeaway">
+                        <span class="wizard-summary-label">Occasions</span>
+                        <div class="detail-chip-row">
+                            ${(fragrance.occasionTags || []).map(tag => `<span class="dossier-reason-chip">${escapeHtml(tag)}</span>`).join('') || '<span class="dossier-reason-chip subtle">Unavailable</span>'}
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            ${dupe ? `
+                <section class="detail-section">
+                    <h3>Research Alternative</h3>
+                    <div class="dossier-takeaway">
+                        <span class="wizard-summary-label">${escapeHtml(dupe.house)} • ${escapeHtml(dupe.name)}</span>
+                        <p>${escapeHtml(`${dupe.name} sits at ${formatPriceTier(dupe.priceTier)} and can serve as the more budget-friendly branch of this scent family.`)}</p>
+                    </div>
+                </section>
+            ` : ''}
+        </div>
+    `;
+}
+
+function closeFragranceDetailModal() {
+    const modal = document.getElementById('fragrance-detail-modal');
+    if (!modal) return;
+
+    resultsViewState.detailFragranceId = '';
+    modal.classList.remove('active');
+}
+
+function ensureFragranceDetailModalBindings() {
+    const modal = document.getElementById('fragrance-detail-modal');
+    const closeButton = document.getElementById('btn-close-detail-modal');
+
+    if (!modal || modal.__detailModalBound) {
+        return;
+    }
+
+    if (closeButton) {
+        closeButton.addEventListener('click', closeFragranceDetailModal);
+    }
+
+    modal.addEventListener('click', (event) => {
+        if (event.target === modal) {
+            closeFragranceDetailModal();
+        }
+    });
+
+    document.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape' && modal.classList.contains('active')) {
+            closeFragranceDetailModal();
+        }
+    });
+
+    modal.__detailModalBound = true;
+}
+
+function openFragranceDetailModal(id) {
+    const fragrance = findResultFragranceById(id);
+    const modal = document.getElementById('fragrance-detail-modal');
+
+    if (!fragrance || !modal) {
+        return;
+    }
+
+    ensureFragranceDetailModalBindings();
+    resultsViewState.detailFragranceId = fragrance.id;
+    renderFragranceDetail(fragrance);
+    modal.classList.add('active');
+}
+
 function runStartupStep(label, callback) {
     try {
         return callback();
@@ -266,9 +1306,15 @@ document.addEventListener("DOMContentLoaded", async () => {
     runStartupStep('initAuth', initAuth);
     runStartupStep('initWizard', initWizard);
     runStartupStep('initProfileView', initProfileView);
+    runStartupStep('initFragranceDetailModal', ensureFragranceDetailModalBindings);
+    runStartupStep('restoreGuestExperience', restoreGuestExperience);
     runStartupStep('restoreAccountExperience', restoreAccountExperience);
     runStartupStep('updateAuthUI', updateAuthUI);
     applyTheme();
+
+    window.addEventListener('beforeunload', () => {
+        persistGuestExperience({ immediate: true });
+    });
 });
 
 function initWizard() {
@@ -312,7 +1358,7 @@ function initWizard() {
     const addFav = (val) => {
         const text = (val || favInput.value).trim();
         if (text && !state.favorites.includes(text)) {
-            state.favorites.push(text);
+            state.favorites = [...state.favorites, text];
             renderFavTags();
             favInput.value = '';
             cancelPendingAutocomplete();
@@ -326,6 +1372,7 @@ function initWizard() {
             renderFavTags();
         });
         syncStarterCards();
+        persistGuestExperience();
     };
 
     const showDropdown = (matches, emptyMessage = 'No matches — press Enter to add custom entry') => {
@@ -365,26 +1412,14 @@ function initWizard() {
         acDropdown.querySelectorAll('.ac-item').forEach(el => el.classList.remove('ac-active'));
     };
 
-    if (isUsingFallbackCatalog()) {
-        favInput.placeholder = 'Use starter picks below or type a fragrance manually';
-        favInput.setAttribute('aria-describedby', 'autocomplete-helper');
-        setAutocompleteHelper(OFFLINE_AUTOCOMPLETE_COPY);
-    } else {
-        favInput.removeAttribute('aria-describedby');
-        setAutocompleteHelper('');
-    }
+    favInput.removeAttribute('aria-describedby');
+    setAutocompleteHelper('');
 
     favInput.addEventListener('input', () => {
         const query = favInput.value.trim();
         cancelPendingAutocomplete();
 
-        if (isUsingFallbackCatalog()) {
-            hideDropdown();
-            setAutocompleteHelper(OFFLINE_AUTOCOMPLETE_COPY);
-            return;
-        }
-
-        if (query.length < 2) {
+        if (query.length < 1) {
             hideDropdown();
             return;
         }
@@ -397,19 +1432,17 @@ function initWizard() {
                     .slice(0, 8);
 
                 if (requestId !== autocompleteRequestId) return;
-                clearBackendStatus();
                 showDropdown(matches);
             } catch (error) {
                 if (requestId !== autocompleteRequestId) return;
-                console.warn('Unable to load fragrance suggestions.', error);
-                const issue = showBackendStatus(error);
-                showDropdown([], issue.autocompleteCopy);
+                console.warn('Unable to load fragrance suggestions from the local catalog.', error);
+                showDropdown([], 'Suggestions are unavailable right now.');
             } finally {
                 if (requestId === autocompleteRequestId) {
                     autocompleteTimer = null;
                 }
             }
-        }, 300);
+        }, 120);
     });
 
     favInput.addEventListener('keydown', (e) => {
@@ -632,6 +1665,22 @@ function initWizard() {
         }
 
         return 'We could not transcribe that recording.';
+    }
+
+    function getTranscriptionRetryMessage(response) {
+        if (!response || response.quality !== 'retry') {
+            return 'Try again.';
+        }
+
+        if (response.retryReason === 'partial_capture') {
+            return 'Try again. We only caught part of that sentence.';
+        }
+
+        if (response.retryReason === 'repetition') {
+            return 'Try again. That recording came through with repeated words.';
+        }
+
+        return 'Try again. The audio came through unclearly.';
     }
 
     function resetInterpretation(kind, { preserveLastInput = '' } = {}) {
@@ -1075,6 +2124,7 @@ function initWizard() {
 
         textarea.addEventListener('input', () => {
             state[stateKey] = textarea.value;
+            persistGuestExperience();
             queueInterpretation(kind);
         });
 
@@ -1082,15 +2132,32 @@ function initWizard() {
         const supportsRecordedAudio = typeof MediaRecorder !== 'undefined'
             && navigator.mediaDevices
             && typeof navigator.mediaDevices.getUserMedia === 'function';
-        const MIN_RECORDING_DURATION_MS = 450;
+        const MIN_RECORDING_DURATION_MS = 700;
 
         const setMicStatus = (message, { active = false } = {}) => {
             micStatus.textContent = message;
             micStatus.classList.toggle('active', active);
         };
 
-        btnMic.setAttribute('title', 'Hold to record');
-        btnMic.setAttribute('aria-label', 'Hold to record');
+        const setMicButtonState = (mode) => {
+            const isRecording = mode === 'recording';
+            const isTranscribing = mode === 'transcribing';
+            const nextLabel = isTranscribing
+                ? 'Transcribing'
+                : (
+                    isRecording
+                        ? 'Tap to stop recording'
+                        : (supportsRecordedAudio ? 'Tap to start recording' : 'Tap to start browser dictation')
+                );
+
+            btnMic.classList.toggle('recording', isRecording);
+            btnMic.disabled = isTranscribing;
+            btnMic.setAttribute('aria-pressed', isRecording ? 'true' : 'false');
+            btnMic.setAttribute('title', nextLabel);
+            btnMic.setAttribute('aria-label', nextLabel);
+        };
+
+        setMicButtonState('ready');
 
         if (!supportsRecordedAudio && SpeechRecognition) {
             const recognition = new SpeechRecognition();
@@ -1108,12 +2175,12 @@ function initWizard() {
 
                 try {
                     isListening = true;
-                    btnMic.classList.add('recording');
-                    setMicStatus('Listening with browser dictation fallback...', { active: true });
+                    setMicButtonState('recording');
+                    setMicStatus('Listening... tap again to stop.', { active: true });
                     recognition.start();
                 } catch (error) {
                     isListening = false;
-                    btnMic.classList.remove('recording');
+                    setMicButtonState('ready');
                     setMicStatus('Microphone is busy right now.');
                 }
             });
@@ -1143,23 +2210,21 @@ function initWizard() {
 
                 setMicStatus(
                     interimTranscript.trim()
-                        ? `Listening with browser dictation fallback... ${interimTranscript.trim()}`
-                        : 'Listening with browser dictation fallback...',
+                        ? `Listening... ${interimTranscript.trim()}`
+                        : 'Listening... tap again to stop.',
                     { active: true }
                 );
             };
 
             recognition.onend = () => {
                 isListening = false;
-                btnMic.classList.remove('recording');
-                if (micStatus.textContent.startsWith('Listening')) {
-                    setMicStatus('Press to use browser dictation fallback');
-                }
+                setMicButtonState('ready');
+                setMicStatus(micStatus.dataset.defaultMessage || 'Ready to record');
             };
 
             recognition.onerror = (event) => {
                 isListening = false;
-                btnMic.classList.remove('recording');
+                setMicButtonState('ready');
                 setMicStatus((
                     event.error === 'not-allowed'
                     || event.error === 'service-not-allowed'
@@ -1168,8 +2233,14 @@ function initWizard() {
                     : 'Voice capture failed');
             };
 
-            micStatus.dataset.defaultMessage = 'Press to use browser dictation fallback';
-            setMicStatus('Press to use browser dictation fallback');
+            document.addEventListener('keydown', (event) => {
+                if (event.key === 'Escape' && isListening) {
+                    recognition.stop();
+                }
+            });
+
+            micStatus.dataset.defaultMessage = 'Ready to record';
+            setMicStatus('Ready to record');
             return;
         }
 
@@ -1178,47 +2249,83 @@ function initWizard() {
             return;
         }
 
-        let mediaRecorder = null;
         let mediaStream = null;
+        let mediaRecorder = null;
         let recordedChunks = [];
-        let activePointerId = null;
+        let isPreparing = false;
         let isRecording = false;
         let isTranscribing = false;
-        let holdStartedAt = 0;
-        let shouldKeepRecording = false;
+        let recordingStartedAt = 0;
+        let skipNextTranscription = false;
 
-        const stopStreamTracks = () => {
-            if (!mediaStream) return;
+        const hasLiveMediaStream = () => (
+            mediaStream
+            && mediaStream.active
+            && mediaStream.getTracks().some((track) => track.readyState === 'live')
+        );
+
+        const releaseMediaStream = () => {
+            if (!mediaStream) {
+                return;
+            }
+
             mediaStream.getTracks().forEach((track) => track.stop());
             mediaStream = null;
         };
 
+        const ensureMediaStream = async () => {
+            if (hasLiveMediaStream()) {
+                return mediaStream;
+            }
+
+            releaseMediaStream();
+
+            mediaStream = await navigator.mediaDevices.getUserMedia({
+                audio: {
+                    channelCount: 1,
+                    noiseSuppression: true,
+                    echoCancellation: true,
+                    autoGainControl: true
+                }
+            });
+
+            return mediaStream;
+        };
+
         const resetRecorderState = () => {
-            btnMic.classList.remove('recording');
-            stopStreamTracks();
             mediaRecorder = null;
             recordedChunks = [];
-            holdStartedAt = 0;
+            recordingStartedAt = 0;
+            skipNextTranscription = false;
         };
 
         const finishRecording = async () => {
-            const durationMs = holdStartedAt ? Date.now() - holdStartedAt : 0;
+            const durationMs = recordingStartedAt ? Date.now() - recordingStartedAt : 0;
             const audioType = mediaRecorder && mediaRecorder.mimeType
                 ? mediaRecorder.mimeType
                 : (recordedChunks[0] && recordedChunks[0].type) || 'audio/webm';
             const audioBlob = new Blob(recordedChunks, { type: audioType });
+            const shouldTranscribe = !skipNextTranscription;
 
             isRecording = false;
 
+            if (!shouldTranscribe) {
+                resetRecorderState();
+                setMicButtonState('ready');
+                setMicStatus(micStatus.dataset.defaultMessage || 'Ready to record');
+                return;
+            }
+
             if (!audioBlob.size || durationMs < MIN_RECORDING_DURATION_MS) {
                 resetRecorderState();
-                setMicStatus('Hold a little longer so we can capture the full sentence.');
+                setMicButtonState('ready');
+                setMicStatus('Try again. Record a little longer.');
                 return;
             }
 
             try {
                 isTranscribing = true;
-                btnMic.classList.remove('recording');
+                setMicButtonState('transcribing');
                 setMicStatus('Transcribing...', { active: true });
 
                 const formData = new FormData();
@@ -1226,24 +2333,35 @@ function initWizard() {
                 formData.append('durationMs', String(durationMs));
                 const response = await transcribePreferenceAudio(formData);
 
-                if (response && response.text) {
+                if (response && response.quality === 'ok' && response.text) {
                     appendTranscriptToTextarea(textarea, response.text);
                     queueInterpretation(kind, { immediate: true });
-                    setMicStatus('Hold to talk');
+                    setMicStatus(micStatus.dataset.defaultMessage || 'Ready to record');
                 } else {
-                    setMicStatus('No speech detected. Try holding the button a little longer.');
+                    setMicStatus(getTranscriptionRetryMessage(response));
                 }
             } catch (error) {
                 setMicStatus(getTranscriptionErrorMessage(error));
             } finally {
                 isTranscribing = false;
                 resetRecorderState();
+                setMicButtonState('ready');
             }
         };
 
-        const stopRecording = () => {
+        const stopRecording = ({ skipTranscription = false } = {}) => {
             if (!isRecording || !mediaRecorder || mediaRecorder.state === 'inactive') {
                 return;
+            }
+
+            skipNextTranscription = skipTranscription;
+
+            try {
+                if (typeof mediaRecorder.requestData === 'function') {
+                    mediaRecorder.requestData();
+                }
+            } catch (error) {
+                // Some browsers can throw if requestData is called mid-state transition.
             }
 
             try {
@@ -1252,142 +2370,105 @@ function initWizard() {
                 isRecording = false;
                 isTranscribing = false;
                 resetRecorderState();
+                setMicButtonState('ready');
                 setMicStatus('Voice capture failed');
             }
         };
 
-        const releasePointerCapture = () => {
-            if (
-                activePointerId !== null
-                && typeof btnMic.releasePointerCapture === 'function'
-                && btnMic.hasPointerCapture
-                && btnMic.hasPointerCapture(activePointerId)
-            ) {
-                btnMic.releasePointerCapture(activePointerId);
-            }
-
-            activePointerId = null;
-        };
-
-        const handleRecordingEnd = () => {
-            shouldKeepRecording = false;
-            releasePointerCapture();
-            stopRecording();
-        };
-
         const startRecording = async () => {
-            if (isRecording || isTranscribing) {
+            if (isPreparing || isRecording || isTranscribing) {
                 return;
             }
 
+            isPreparing = true;
+            setMicStatus('Preparing microphone...', { active: true });
+
             try {
                 const mimeType = pickRecorderMimeType();
-                mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                mediaRecorder = mimeType
-                    ? new MediaRecorder(mediaStream, { mimeType })
-                    : new MediaRecorder(mediaStream);
-                recordedChunks = [];
-                isRecording = true;
-                holdStartedAt = Date.now();
+                const stream = await ensureMediaStream();
+                const recorder = mimeType
+                    ? new MediaRecorder(stream, { mimeType })
+                    : new MediaRecorder(stream);
 
-                mediaRecorder.addEventListener('dataavailable', (event) => {
+                mediaRecorder = recorder;
+                recordedChunks = [];
+                recordingStartedAt = Date.now();
+                skipNextTranscription = false;
+                isRecording = true;
+
+                recorder.addEventListener('dataavailable', (event) => {
                     if (event.data && event.data.size > 0) {
                         recordedChunks.push(event.data);
                     }
                 });
 
-                mediaRecorder.addEventListener('stop', async () => {
+                recorder.addEventListener('stop', async () => {
                     await finishRecording();
                 }, { once: true });
 
-                mediaRecorder.addEventListener('error', () => {
+                recorder.addEventListener('error', () => {
                     isRecording = false;
                     isTranscribing = false;
                     resetRecorderState();
+                    setMicButtonState('ready');
                     setMicStatus('Voice capture failed');
                 }, { once: true });
 
-                mediaRecorder.start();
-                btnMic.classList.add('recording');
-                setMicStatus('Recording... release to transcribe', { active: true });
-
-                if (!shouldKeepRecording) {
-                    stopRecording();
-                }
+                recorder.start(250);
+                setMicButtonState('recording');
+                setMicStatus('Recording... tap again to stop.', { active: true });
             } catch (error) {
                 isRecording = false;
                 isTranscribing = false;
                 resetRecorderState();
+                setMicButtonState('ready');
                 setMicStatus(
                     error && error.name === 'NotAllowedError'
                         ? 'Microphone access denied'
                         : 'Unable to start recording'
                 );
+            } finally {
+                isPreparing = false;
             }
         };
 
-        btnMic.addEventListener('pointerdown', async (event) => {
+        const cancelForPageHide = () => {
+            if (isRecording) {
+                stopRecording({ skipTranscription: true });
+            }
+
+            if (!isTranscribing) {
+                releaseMediaStream();
+            }
+        };
+
+        btnMic.addEventListener('click', async (event) => {
             event.preventDefault();
 
-            if (isTranscribing) {
+            if (isTranscribing || isPreparing) {
                 return;
             }
 
-            shouldKeepRecording = true;
-            activePointerId = event.pointerId;
-
-            if (typeof btnMic.setPointerCapture === 'function') {
-                btnMic.setPointerCapture(event.pointerId);
+            if (isRecording) {
+                stopRecording();
+                return;
             }
 
             await startRecording();
         });
 
-        btnMic.addEventListener('pointerup', (event) => {
-            if (activePointerId !== null && event.pointerId !== activePointerId) {
-                return;
-            }
-
-            handleRecordingEnd();
-        });
-
-        btnMic.addEventListener('pointercancel', (event) => {
-            if (activePointerId !== null && event.pointerId !== activePointerId) {
-                return;
-            }
-
-            handleRecordingEnd();
-        });
-
-        btnMic.addEventListener('lostpointercapture', () => {
-            activePointerId = null;
-        });
-
-        btnMic.addEventListener('keydown', async (event) => {
-            if ((event.key === ' ' || event.key === 'Enter') && !event.repeat) {
+        document.addEventListener('keydown', (event) => {
+            if (event.key === 'Escape' && isRecording) {
                 event.preventDefault();
-                shouldKeepRecording = true;
-                await startRecording();
+                stopRecording();
             }
         });
 
-        btnMic.addEventListener('keyup', (event) => {
-            if (event.key === ' ' || event.key === 'Enter') {
-                event.preventDefault();
-                handleRecordingEnd();
-            }
-        });
+        window.addEventListener('pagehide', cancelForPageHide);
+        window.addEventListener('beforeunload', cancelForPageHide);
 
-        btnMic.addEventListener('blur', () => {
-            handleRecordingEnd();
-        });
-
-        window.addEventListener('blur', () => {
-            handleRecordingEnd();
-        });
-
-        micStatus.dataset.defaultMessage = 'Hold to talk';
-        setMicStatus('Hold to talk');
+        micStatus.dataset.defaultMessage = 'Ready to record';
+        setMicStatus('Ready to record');
     }
 
     Object.values(interpretationUi).forEach((ui) => {
@@ -1779,6 +2860,7 @@ function initWizard() {
         syncAccordPills();
         renderSelectedNotesTray();
         renderInterpretationPanel('scent');
+        persistGuestExperience();
     };
 
     const toggleFineTuneNote = (note) => {
@@ -1810,8 +2892,7 @@ function initWizard() {
             state.selectedAccords = [...state.selectedAccords, label];
         }
 
-        syncAccordPills();
-        renderInterpretationPanel('scent');
+        syncScentProfileSelections();
     };
 
     SCENT_FAMILIES.forEach(family => {
@@ -2034,20 +3115,21 @@ function initWizard() {
         syncSelectablePills(occasionPillLookup, state.occasions);
         syncSelectablePills(climatePillLookup, state.climates);
         renderInterpretationPanel('usage');
+        persistGuestExperience();
     };
 
-    const bindSelectables = (containerId, stateArr, lookup) => {
+    const bindSelectables = (containerId, stateKey, lookup) => {
         const grid = document.getElementById(containerId);
         if (!grid) return;
         grid.querySelectorAll('.select-pill').forEach(pill => {
             pill.addEventListener('click', () => {
                 const val = pill.getAttribute('data-val');
-                if (stateArr.includes(val)) {
-                    const idx = stateArr.indexOf(val);
-                    if (idx > -1) stateArr.splice(idx, 1);
-                } else {
-                    stateArr.push(val);
-                }
+                const currentValues = Array.isArray(state[stateKey]) ? state[stateKey] : [];
+                const nextValues = currentValues.includes(val)
+                    ? currentValues.filter(currentValue => currentValue !== val)
+                    : [...currentValues, val];
+
+                state[stateKey] = nextValues;
                 syncUsageIntentSelections();
                 revealUsageIntentSections({ immediate: true });
             });
@@ -2071,8 +3153,8 @@ function initWizard() {
 
     populatePillGrid('occasion-grid', OCCASION_OPTIONS, 'occ', occasionPillLookup);
     populatePillGrid('climate-grid', CLIMATE_OPTIONS, 'cli', climatePillLookup);
-    bindSelectables('occasion-grid', state.occasions, occasionPillLookup);
-    bindSelectables('climate-grid', state.climates, climatePillLookup);
+    bindSelectables('occasion-grid', 'occasions', occasionPillLookup);
+    bindSelectables('climate-grid', 'climates', climatePillLookup);
     syncUsageIntentSelections();
 
     // Step 3 (Now includes Performance)
@@ -2101,6 +3183,7 @@ function initWizard() {
         
         const progress = val + '%';
         perfSlider.style.background = `linear-gradient(to right, var(--clr-bar-fill-end) ${progress}, var(--clr-slider-track) ${progress})`;
+        persistGuestExperience();
 
         if (sliderInteracted) {
             revealSection(budgetSection, { scroll: true });
@@ -2118,6 +3201,7 @@ function initWizard() {
             budgetGrid.querySelectorAll('.budget-pill').forEach(p => p.classList.remove('selected'));
             pill.classList.add('selected');
             state.budget = parseInt(pill.getAttribute('data-val'));
+            persistGuestExperience();
         });
     });
     // Set default budget select
@@ -2178,6 +3262,8 @@ function initWizard() {
             loaderText.innerText = 'Extracting scent markers...';
             loaderText.style.opacity = '1';
         }
+
+        persistGuestExperience();
     };
 
     resetWizardExperience = async ({ skipConfirmation = false, clearAccountState = false } = {}) => {
@@ -2192,6 +3278,11 @@ function initWizard() {
         state.latestRecommendations = [];
         state.latestArchetype = null;
         currentStep = 1;
+        closeFragranceDetailModal();
+
+        if (!authState.isLoggedIn) {
+            clearGuestDraftState();
+        }
 
         if (authState.isLoggedIn && clearAccountState) {
             authState.latestProfile = null;
@@ -2210,6 +3301,7 @@ function initWizard() {
         updateWizardUI();
         updateAuthUI();
         applyTheme();
+        persistGuestExperience({ immediate: true });
         return true;
     };
 
@@ -2230,6 +3322,10 @@ function syncActiveView() {
 
 function setActiveView(viewId) {
     dismissScentProfileHelp();
+
+    if (viewId !== 'results-view') {
+        closeFragranceDetailModal();
+    }
 
     VIEW_IDS.forEach(id => {
         const view = document.getElementById(id);
@@ -2423,6 +3519,7 @@ function restoreAccountExperience() {
         .map(findFragranceById)
         .filter(Boolean);
     state.latestArchetype = createArchetypeFromTitle(authState.personalityTitle);
+    primeResultsExperience(state.latestRecommendations);
 }
 
 async function hydrateAuthState() {
@@ -2488,6 +3585,39 @@ function getSavedFragranceSnapshot() {
         missingCount: Math.max(0, authState.savedRecommendationIds.length - availableFragrances.length),
         availableFragrances
     };
+}
+
+function getProfileCollectionSnapshot() {
+    if (authState.isLoggedIn) {
+        return {
+            ...getSavedFragranceSnapshot(),
+            isGuestPreview: false,
+            guestCollectionMode: 'account'
+        };
+    }
+
+    const guestShortlist = getGuestShortlistFragrances();
+    const isShortlistMode = guestShortlist.length > 0;
+
+    return {
+        totalSavedCount: isShortlistMode ? guestExperienceState.shortlistIds.length : state.latestRecommendations.length,
+        missingCount: isShortlistMode
+            ? Math.max(0, guestExperienceState.shortlistIds.length - guestShortlist.length)
+            : 0,
+        availableFragrances: isShortlistMode ? guestShortlist : [...state.latestRecommendations],
+        isGuestPreview: true,
+        guestCollectionMode: isShortlistMode ? 'shortlist' : 'recent'
+    };
+}
+
+function getProfilePersonalityTitle() {
+    if (authState.isLoggedIn && isRecognizedArchetypeTitle(authState.personalityTitle)) {
+        return authState.personalityTitle;
+    }
+
+    return state.latestArchetype && isRecognizedArchetypeTitle(state.latestArchetype.title)
+        ? state.latestArchetype.title
+        : '';
 }
 
 function isRecommendationSaved(id) {
@@ -2682,22 +3812,33 @@ function renderProfileCollection(savedSummary) {
     const savedFragrances = savedSummary.availableFragrances;
     const filteredFragrances = getFilteredSavedFragrances(savedFragrances);
     const hasOfflineGap = isUsingFallbackCatalog() && savedSummary.missingCount > 0;
+    const isGuestPreview = Boolean(savedSummary.isGuestPreview);
+    const guestCollectionMode = savedSummary.guestCollectionMode || 'recent';
 
-    resultsNote.innerText = hasOfflineGap ? getOfflineCollectionCopy(savedSummary.missingCount) : '';
-    resultsNote.hidden = !hasOfflineGap;
+    resultsNote.innerText = !isGuestPreview && hasOfflineGap ? getOfflineCollectionCopy(savedSummary.missingCount) : '';
+    resultsNote.hidden = !resultsNote.innerText;
 
     if (savedSummary.totalSavedCount === 0) {
-        resultsTitle.innerText = 'No saved fragrances yet';
-        emptyState.innerHTML = `
-            <h3 class="profile-empty-title">Your profile is ready for discoveries</h3>
-            <p class="profile-empty-copy">Save recommendations from the results page and your collection will appear here.</p>
-        `;
+        resultsTitle.innerText = isGuestPreview
+            ? (guestCollectionMode === 'shortlist' ? 'No guest shortlist yet' : 'No preview generated yet')
+            : 'No saved fragrances yet';
+        emptyState.innerHTML = isGuestPreview
+            ? `
+                <h3 class="profile-empty-title">${guestCollectionMode === 'shortlist' ? 'Your guest shortlist is empty' : 'Complete the profiling flow to build your preview'}</h3>
+                <p class="profile-empty-copy">${guestCollectionMode === 'shortlist'
+                    ? 'Shortlist fragrances from the results screen and they will stay here locally while account sync is offline.'
+                    : 'Your latest recommendations will appear here once you finish the discovery steps.'}</p>
+            `
+            : `
+                <h3 class="profile-empty-title">Your profile is ready for discoveries</h3>
+                <p class="profile-empty-copy">Save recommendations from the results page and your collection will appear here.</p>
+            `;
         emptyState.hidden = false;
         grid.innerHTML = '';
         return;
     }
 
-    if (savedFragrances.length === 0 && hasOfflineGap) {
+    if (!isGuestPreview && savedFragrances.length === 0 && hasOfflineGap) {
         resultsTitle.innerText = 'Offline collection preview';
         emptyState.innerHTML = `
             <h3 class="profile-empty-title">Your saved collection needs the backend for the full view</h3>
@@ -2709,10 +3850,16 @@ function renderProfileCollection(savedSummary) {
     }
 
     if (filteredFragrances.length === 0) {
-        resultsTitle.innerText = 'No matches for the current filters';
+        resultsTitle.innerText = isGuestPreview
+            ? (guestCollectionMode === 'shortlist' ? 'No shortlist matches for the current filters' : 'No preview matches for the current filters')
+            : 'No matches for the current filters';
         emptyState.innerHTML = `
             <h3 class="profile-empty-title">Nothing matches those filters</h3>
-            <p class="profile-empty-copy">Clear or adjust the side filters to bring your saved fragrances back into view.</p>
+            <p class="profile-empty-copy">${isGuestPreview
+                ? (guestCollectionMode === 'shortlist'
+                    ? 'Clear or adjust the side filters to bring your shortlisted fragrances back into view.'
+                    : 'Clear or adjust the side filters to bring your preview fragrances back into view.')
+                : 'Clear or adjust the side filters to bring your saved fragrances back into view.'}</p>
         `;
         emptyState.hidden = false;
         grid.innerHTML = '';
@@ -2720,19 +3867,31 @@ function renderProfileCollection(savedSummary) {
     }
 
     resultsTitle.innerText = filteredFragrances.length === savedFragrances.length
-        ? `${savedFragrances.length} fragrances in your profile`
-        : `${filteredFragrances.length} of ${savedFragrances.length} fragrances shown`;
+        ? (
+            isGuestPreview
+                ? (guestCollectionMode === 'shortlist'
+                    ? `${savedFragrances.length} fragrances in your guest shortlist`
+                    : `${savedFragrances.length} fragrances in your latest preview`)
+                : `${savedFragrances.length} fragrances in your profile`
+        )
+        : (
+            isGuestPreview
+                ? (guestCollectionMode === 'shortlist'
+                    ? `${filteredFragrances.length} of ${savedFragrances.length} shortlisted fragrances shown`
+                    : `${filteredFragrances.length} of ${savedFragrances.length} preview fragrances shown`)
+                : `${filteredFragrances.length} of ${savedFragrances.length} fragrances shown`
+        );
 
     emptyState.hidden = true;
     grid.innerHTML = filteredFragrances.map(buildProfileFragranceCard).join('');
 }
 
 function renderProfileView() {
-    const personalityTitle = isRecognizedArchetypeTitle(authState.personalityTitle)
-        ? authState.personalityTitle
-        : '';
-    const savedSummary = getSavedFragranceSnapshot();
+    const personalityTitle = getProfilePersonalityTitle();
+    const savedSummary = getProfileCollectionSnapshot();
     const savedFragrances = savedSummary.availableFragrances;
+    const isGuestPreview = Boolean(savedSummary.isGuestPreview);
+    const guestCollectionMode = savedSummary.guestCollectionMode || 'recent';
     const housesCount = new Set(savedFragrances.map(frag => frag.house)).size;
     const familyCount = new Set(savedFragrances.flatMap(frag => frag.noteFamilies || [])).size;
     const profileTitle = document.getElementById('profile-personality-title');
@@ -2745,28 +3904,94 @@ function renderProfileView() {
     const profileStatHouses = document.getElementById('profile-stat-houses');
     const profileStatFamilies = document.getElementById('profile-stat-families');
     const resetButton = document.getElementById('btn-reset-personality');
+    const logoutButton = document.getElementById('btn-profile-logout');
+    const personalityLabel = document.querySelector('#profile-view .profile-personality-card .profile-section-label');
+    const filterLabel = document.querySelector('#profile-view .profile-filter-header .profile-section-label');
+    const heroLabel = document.querySelector('#profile-view .profile-hero-card .profile-section-label');
+    const resultsLabel = document.querySelector('#profile-view .profile-main-bar .profile-section-label');
+    const statLabels = document.querySelectorAll('#profile-view .profile-stat-label');
 
     if (!profileTitle || !profileDesc || !profileMeta || !profileEmailHeading || !profileHeroCopy
         || !profileThemeChip || !profileStatCount || !profileStatHouses || !profileStatFamilies || !resetButton) {
         return;
     }
 
-    profileTitle.innerText = personalityTitle || 'Personality Not Set Yet';
+    if (personalityLabel) {
+        personalityLabel.innerText = isGuestPreview ? 'Fragrance Personality Preview' : 'Fragrance Personality';
+    }
+
+    if (filterLabel) {
+        filterLabel.innerText = isGuestPreview ? 'Filter Your Preview' : 'Filter Your Collection';
+    }
+
+    if (heroLabel) {
+        heroLabel.innerText = isGuestPreview ? 'Guest Preview' : 'Account Overview';
+    }
+
+    if (resultsLabel) {
+        resultsLabel.innerText = isGuestPreview
+            ? (guestCollectionMode === 'shortlist' ? 'Shortlisted Fragrances' : 'Previewed Fragrances')
+            : 'Saved Fragrances';
+    }
+
+    if (statLabels[0]) {
+        statLabels[0].innerText = isGuestPreview
+            ? (guestCollectionMode === 'shortlist' ? 'Shortlisted' : 'Previewed')
+            : 'Saved';
+    }
+
+    if (logoutButton) {
+        logoutButton.hidden = isGuestPreview;
+    }
+
+    profileTitle.innerText = personalityTitle || (isGuestPreview ? 'Profile Preview' : 'Personality Not Set Yet');
     profileDesc.innerText = personalityTitle
         ? ARCHETYPES[personalityTitle]
-        : 'Run the profiling experience again to assign a fragrance personality and personalize the full site theme.';
+        : (
+            isGuestPreview
+                ? 'Complete the discovery flow to generate a live personality read and preview it here.'
+                : 'Run the profiling experience again to assign a fragrance personality and personalize the full site theme.'
+        );
     profileMeta.innerText = personalityTitle
-        ? `Your saved account theme and profile page are tuned to this personality in ${getCurrentAppearanceName().toLowerCase()}.`
-        : `You are signed in, and your profile is currently using the default palette in ${getCurrentAppearanceName().toLowerCase()}.`;
-    profileEmailHeading.innerText = authState.profileEmail || 'Signed in profile';
+        ? (
+            isGuestPreview
+                ? `This guest preview is tuned to ${personalityTitle} in ${getCurrentAppearanceName().toLowerCase()}.`
+                : `Your saved account theme and profile page are tuned to this personality in ${getCurrentAppearanceName().toLowerCase()}.`
+        )
+        : (
+            isGuestPreview
+                ? `This guest preview is using the ${getCurrentAppearanceName().toLowerCase()} palette while account persistence is still offline.`
+                : `You are signed in, and your profile is currently using the default palette in ${getCurrentAppearanceName().toLowerCase()}.`
+        );
+    profileEmailHeading.innerText = authState.isLoggedIn
+        ? (authState.profileEmail || 'Signed in profile')
+        : 'Guest Preview';
     profileHeroCopy.innerText = personalityTitle
-        ? `Your collection and interface are currently keyed to ${personalityTitle}.`
-        : 'Build your saved collection now, then reset and re-run profiling whenever you want a new personality read.';
-    profileThemeChip.innerText = personalityTitle || 'Default Palette';
+        ? (
+            isGuestPreview
+                ? (guestCollectionMode === 'shortlist'
+                    ? `Previewing your guest shortlist keyed to ${personalityTitle}.`
+                    : `Previewing your current discovery set keyed to ${personalityTitle}.`)
+                : `Your collection and interface are currently keyed to ${personalityTitle}.`
+        )
+        : (
+            isGuestPreview
+                ? (guestCollectionMode === 'shortlist'
+                    ? (savedSummary.totalSavedCount > 0
+                        ? 'Your local shortlist is available here while account sync is still being built.'
+                        : 'Shortlist fragrances from results and they will stay here locally.')
+                    : (savedSummary.totalSavedCount > 0
+                        ? 'Your latest recommendation set is available here while you continue building the app.'
+                        : 'Complete the discovery flow and your latest recommendations will appear here for preview.'))
+                : 'Build your saved collection now, then reset and re-run profiling whenever you want a new personality read.'
+        );
+    profileThemeChip.innerText = personalityTitle || (isGuestPreview ? 'Guest Preview' : 'Default Palette');
     profileStatCount.innerText = String(savedSummary.availableFragrances.length);
     profileStatHouses.innerText = String(housesCount);
     profileStatFamilies.innerText = String(familyCount);
-    resetButton.innerText = personalityTitle ? 'Reset Personality' : 'Discover Personality';
+    resetButton.innerText = isGuestPreview
+        ? (savedSummary.totalSavedCount > 0 ? 'Refine Profile' : 'Start Profiling')
+        : (personalityTitle ? 'Reset Personality' : 'Discover Personality');
 
     populateProfileFilterControls(savedFragrances);
     renderProfileCollection(savedSummary);
@@ -2784,7 +4009,7 @@ function updateAuthUI() {
     }
 
     if (appNav) {
-        appNav.hidden = !authState.isLoggedIn;
+        appNav.hidden = false;
     }
 
     if (accountNav) {
@@ -2797,14 +4022,11 @@ function updateAuthUI() {
 
     renderProfilePanel();
     renderResultsHeader();
-
-    if (authState.isLoggedIn) {
-        renderProfileView();
-    }
+    renderProfileView();
 
     const resultsView = document.getElementById('results-view');
     if (resultsView && resultsView.classList.contains('active')) {
-        if (state.latestRecommendations.length > 0) {
+        if (state.latestRecommendations.length > 0 || resultsViewState.recommendationPool.length > 0) {
             renderResultsCards(state.latestRecommendations);
         }
     }
@@ -2824,7 +4046,7 @@ function handleAppearanceToggle() {
     }
     applyTheme();
 
-    if (authState.isLoggedIn && viewState.activeViewId === 'profile-view') {
+    if (viewState.activeViewId === 'profile-view') {
         renderProfileView();
     }
 }
@@ -2845,7 +4067,9 @@ function updateTopNavigationState() {
     const discoverButton = document.getElementById('btn-nav-discover');
     const resultsButton = document.getElementById('btn-nav-results');
     const profileButton = document.getElementById('btn-nav-profile');
-    const hasResults = state.latestRecommendations.length > 0 || authState.latestRecommendationIds.length > 0;
+    const hasResults = state.latestRecommendations.length > 0
+        || authState.latestRecommendationIds.length > 0
+        || resultsViewState.recommendationPool.length > 0;
 
     if (discoverButton) {
         discoverButton.classList.toggle('active', viewState.activeViewId === 'wizard-view');
@@ -2876,7 +4100,7 @@ function openResultsView() {
         restoreAccountExperience();
     }
 
-    if (state.latestRecommendations.length === 0) {
+    if (state.latestRecommendations.length === 0 && resultsViewState.recommendationPool.length === 0) {
         return;
     }
 
@@ -2888,11 +4112,6 @@ function openResultsView() {
 }
 
 function openProfileView() {
-    if (!authState.isLoggedIn) {
-        showAuthModal({ mode: 'login' });
-        return;
-    }
-
     if (viewState.activeViewId === 'loading-view') return;
 
     if (viewState.activeViewId !== 'profile-view') {
@@ -3211,11 +4430,17 @@ async function saveRecommendationToProfile(recommendationId) {
 function buildGuestMergePayload() {
     const latestProfile = buildLatestProfileSnapshot();
     const latestRecommendationIds = state.latestRecommendations.map(fragrance => fragrance.id);
+    const savedRecommendationIds = getGuestSavedRecommendationIdsForMerge();
     const personalityTitle = state.latestArchetype && isRecognizedArchetypeTitle(state.latestArchetype.title)
         ? state.latestArchetype.title
         : '';
 
-    if (!hasLatestProfileContent(latestProfile) && latestRecommendationIds.length === 0 && !personalityTitle) {
+    if (
+        !hasLatestProfileContent(latestProfile)
+        && latestRecommendationIds.length === 0
+        && savedRecommendationIds.length === 0
+        && !personalityTitle
+    ) {
         return null;
     }
 
@@ -3224,7 +4449,7 @@ function buildGuestMergePayload() {
         personalityTitle,
         latestProfile,
         latestRecommendationIds,
-        savedRecommendationIds: [],
+        savedRecommendationIds,
         replaceProfileContext: true
     };
 }
@@ -3488,7 +4713,14 @@ function initProfileView() {
     }
 
     if (btnResetPersonality) {
-        btnResetPersonality.addEventListener('click', resetPersonality);
+        btnResetPersonality.addEventListener('click', () => {
+            if (!authState.isLoggedIn) {
+                openDiscoverView();
+                return;
+            }
+
+            resetPersonality();
+        });
     }
 
     if (btnClearFilters) {
@@ -3576,6 +4808,7 @@ function updateWizardUI() {
     }
 
     updateProgress();
+    persistGuestExperience();
 }
 
 function nextStep() {
@@ -3597,6 +4830,10 @@ function prevStep() {
 function showResultsError(issue) {
     state.latestArchetype = null;
     state.latestRecommendations = [];
+    resultsViewState.recommendationPool = [];
+    resultsViewState.activeRefine = 'default';
+    resultsViewState.visibleCount = DEFAULT_RESULTS_VISIBLE_COUNT;
+    closeFragranceDetailModal();
 
     setActiveView('results-view');
     applyTheme();
@@ -3605,6 +4842,7 @@ function showResultsError(issue) {
     renderProfilePanel();
     renderProfileView();
     renderResultsHeader();
+    renderResultsUtilityPanel();
 
     if (resultsGrid) {
         resultsGrid.innerHTML = `
@@ -3672,10 +4910,12 @@ async function processResults() {
 
 function displayResults(archetype, topFrags) {
     state.latestArchetype = archetype;
-    state.latestRecommendations = topFrags;
+    state.latestRecommendations = Array.isArray(topFrags) ? topFrags.filter(Boolean) : [];
+    primeResultsExperience(state.latestRecommendations);
+
     if (authState.isLoggedIn) {
         authState.latestProfile = buildLatestProfileSnapshot();
-        authState.latestRecommendationIds = topFrags.map(fragrance => fragrance.id);
+        authState.latestRecommendationIds = state.latestRecommendations.map(fragrance => fragrance.id);
     }
     clearBackendStatus();
 
@@ -3688,30 +4928,49 @@ function displayResults(archetype, topFrags) {
     renderResultsHeader();
     renderProfilePanel();
     renderProfileView();
-    renderResultsCards(topFrags);
+    renderResultsCards(state.latestRecommendations);
+    persistGuestExperience({ immediate: true });
 }
 
 function renderResultsCards(topFrags) {
     const grid = document.getElementById('results-grid');
     if (!grid) return;
 
+    if (getActiveResultsPool().length === 0 && Array.isArray(topFrags) && topFrags.length > 0) {
+        primeResultsExperience(topFrags);
+    }
+
+    const refinedPool = getRefinedRecommendationPool();
+    const displayPool = refinedPool.slice(0, resultsViewState.visibleCount);
+
     grid.innerHTML = '';
 
-    topFrags.forEach((frag, idx) => {
+    if (displayPool.length === 0) {
+        grid.innerHTML = `
+            <div class="glass-panel results-status-panel">
+                <h3 class="results-status-title">No local matches to show right now</h3>
+                <p class="results-status-copy">Try resetting the refine chips or rerun the wizard with a broader profile.</p>
+            </div>
+        `;
+        renderResultsUtilityPanel();
+        return;
+    }
+
+    displayPool.forEach((frag, idx) => {
         const tierStr = formatPriceTier(frag.priceTier);
         const blindBuyBadge = getBlindBuyBadge(frag.blindBuyScore);
         const longevityWidth = getMetricBarWidth(frag.longevityScore);
         const sillageWidth = getMetricBarWidth(frag.sillageScore);
         const isSaved = isRecommendationSaved(frag.id);
-        const guestClass = authState.isLoggedIn ? '' : ' recommendation-locked';
-        const interactiveAttrs = authState.isLoggedIn
-            ? ''
-            : `tabindex="0" role="button" aria-label="Create a profile to save ${frag.name} by ${frag.house}"`;
+        const isShortlisted = isGuestShortlisted(frag.id);
+        const compared = isCompared(frag.id);
+        const feedback = getGuestFeedback(frag.id);
+        const insight = buildResultInsight(frag);
         const actionCopy = authState.isLoggedIn
             ? (isSaved
                 ? 'Already saved in your fragrance profile.'
                 : 'Add this recommendation to your profile to keep it handy.')
-            : 'Click this recommendation to create your profile and save it.';
+            : 'Shortlist, compare, and rate locally for now. Sign in later to save to an account.';
         const actionLabel = authState.isLoggedIn
             ? (isSaved ? 'Saved to Profile' : 'Add to Profile')
             : 'Create Profile to Save';
@@ -3759,7 +5018,14 @@ function renderResultsCards(topFrags) {
         }
 
         const html = `
-            <div class="glass-panel dossier-card${guestClass}" data-fragrance-id="${frag.id}" style="animation-delay: ${idx * 0.25}s" ${interactiveAttrs}>
+            <article
+                class="glass-panel dossier-card"
+                data-fragrance-id="${frag.id}"
+                style="animation-delay: ${idx * 0.25}s"
+                tabindex="0"
+                role="button"
+                aria-label="Open details for ${escapeHtml(frag.name)} by ${escapeHtml(frag.house)}"
+            >
                 <div class="dossier-badge ${blindBuyBadge.className}">${blindBuyBadge.label} • ${blindBuyBadge.value}</div>
                 <div class="dossier-header">
                     <div class="d-info">
@@ -3767,6 +5033,26 @@ function renderResultsCards(topFrags) {
                         <div class="d-name">${frag.name}</div>
                     </div>
                     <div class="d-tier">${tierStr}</div>
+                </div>
+
+                <div class="dossier-insight-panel">
+                    <div class="dossier-confidence-row">
+                        <span class="dossier-confidence">${escapeHtml(insight.confidenceLabel)}</span>
+                        <span class="dossier-score-label">${escapeHtml(insight.scoreLabel)}</span>
+                    </div>
+                    <div class="dossier-reason-row">
+                        ${insight.reasons.map(reason => `<span class="dossier-reason-chip">${escapeHtml(reason)}</span>`).join('')}
+                    </div>
+                    <div class="dossier-takeaway-grid">
+                        <div class="dossier-takeaway">
+                            <span class="wizard-summary-label">Budget</span>
+                            <p>${escapeHtml(insight.budgetTakeaway)}</p>
+                        </div>
+                        <div class="dossier-takeaway">
+                            <span class="wizard-summary-label">Performance</span>
+                            <p>${escapeHtml(insight.performanceTakeaway)}</p>
+                        </div>
+                    </div>
                 </div>
                 
                 <div class="dossier-notes-grid">
@@ -3790,6 +5076,46 @@ function renderResultsCards(topFrags) {
                     </div>
                 </div>
 
+                <div class="dossier-local-actions">
+                    <div class="dossier-local-chip-row">
+                        <button
+                            type="button"
+                            class="btn-ghost btn-sm dossier-local-btn${isShortlisted ? ' active' : ''}"
+                            data-local-action="shortlist"
+                            data-fragrance-id="${frag.id}"
+                        >
+                            ${isShortlisted ? 'Shortlisted' : 'Shortlist'}
+                        </button>
+                        <button
+                            type="button"
+                            class="btn-ghost btn-sm dossier-local-btn${compared ? ' active' : ''}"
+                            data-local-action="compare"
+                            data-fragrance-id="${frag.id}"
+                        >
+                            ${compared ? 'Comparing' : 'Compare'}
+                        </button>
+                        <button
+                            type="button"
+                            class="btn-ghost btn-sm dossier-local-btn"
+                            data-open-detail="${frag.id}"
+                        >
+                            Details
+                        </button>
+                    </div>
+                    <div class="dossier-feedback-row">
+                        ${GUEST_FEEDBACK_VALUES.map((value) => `
+                            <button
+                                type="button"
+                                class="dossier-feedback-btn${feedback === value ? ' active' : ''}"
+                                data-feedback="${value}"
+                                data-fragrance-id="${frag.id}"
+                            >
+                                ${value === 'love' ? 'Love' : value === 'maybe' ? 'Maybe' : 'Pass'}
+                            </button>
+                        `).join('')}
+                    </div>
+                </div>
+
                 <div class="dossier-actions">
                     <p class="dossier-action-copy">${actionCopy}</p>
                     <button
@@ -3803,9 +5129,22 @@ function renderResultsCards(topFrags) {
                 </div>
 
                 ${dupeHtml}
-            </div>
+            </article>
         `;
         grid.insertAdjacentHTML('beforeend', html);
+    });
+
+    grid.querySelectorAll('.dossier-card').forEach((card) => {
+        card.addEventListener('click', () => {
+            openFragranceDetailModal(card.getAttribute('data-fragrance-id'));
+        });
+
+        card.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                openFragranceDetailModal(card.getAttribute('data-fragrance-id'));
+            }
+        });
     });
 
     grid.querySelectorAll('.dossier-save-btn').forEach(button => {
@@ -3821,6 +5160,43 @@ function renderResultsCards(topFrags) {
         });
     });
 
+    grid.querySelectorAll('[data-local-action]').forEach((button) => {
+        button.addEventListener('click', (event) => {
+            event.stopPropagation();
+
+            const action = button.getAttribute('data-local-action');
+            const fragranceId = button.getAttribute('data-fragrance-id');
+
+            if (action === 'shortlist') {
+                toggleGuestShortlist(fragranceId);
+            } else if (action === 'compare') {
+                toggleCompare(fragranceId);
+            }
+
+            renderProfileView();
+            renderResultsCards(state.latestRecommendations);
+        });
+    });
+
+    grid.querySelectorAll('[data-feedback]').forEach((button) => {
+        button.addEventListener('click', (event) => {
+            event.stopPropagation();
+            setGuestFeedback(
+                button.getAttribute('data-fragrance-id'),
+                button.getAttribute('data-feedback')
+            );
+            renderProfileView();
+            renderResultsCards(state.latestRecommendations);
+        });
+    });
+
+    grid.querySelectorAll('[data-open-detail]').forEach((button) => {
+        button.addEventListener('click', (event) => {
+            event.stopPropagation();
+            openFragranceDetailModal(button.getAttribute('data-open-detail'));
+        });
+    });
+
     grid.querySelectorAll('.dupe-toggle').forEach(toggle => {
         toggle.addEventListener('click', (event) => {
             event.stopPropagation();
@@ -3828,20 +5204,13 @@ function renderResultsCards(topFrags) {
         });
     });
 
-    if (!authState.isLoggedIn) {
-        grid.querySelectorAll('.recommendation-locked').forEach(card => {
-            const recommendationId = card.getAttribute('data-fragrance-id');
+    renderResultsUtilityPanel();
 
-            card.addEventListener('click', () => {
-                promptAuthForRecommendation(recommendationId);
-            });
-
-            card.addEventListener('keydown', (event) => {
-                if (event.key === 'Enter' || event.key === ' ') {
-                    event.preventDefault();
-                    promptAuthForRecommendation(recommendationId);
-                }
-            });
-        });
+    const detailModal = document.getElementById('fragrance-detail-modal');
+    if (detailModal && detailModal.classList.contains('active') && resultsViewState.detailFragranceId) {
+        const activeFragrance = findResultFragranceById(resultsViewState.detailFragranceId);
+        if (activeFragrance) {
+            renderFragranceDetail(activeFragrance);
+        }
     }
 }

@@ -9,7 +9,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=Playfair+Display:ital,wght@0,400;0,600;0,800;1,400&display=swap" rel="stylesheet">
     <!-- CSS -->
-    <link rel="stylesheet" href="styles/style.css?v=frontend-20260404-01">
+    <link rel="stylesheet" href="styles/style.css?v=frontend-20260405-02">
 </head>
 <body>
     <svg xmlns="http://www.w3.org/2000/svg" style="display:none">
@@ -259,6 +259,21 @@
                 <p id="archetype-desc" class="plaque-desc"></p>
             </div>
 
+            <div id="results-utility-panel" class="results-utility-panel glass-panel" hidden>
+                <div class="results-utility-header">
+                    <div>
+                        <p class="profile-panel-label">Refine Your Results</p>
+                        <h3 class="profile-panel-title">Adjust this set without restarting the wizard</h3>
+                    </div>
+                    <p id="results-utility-meta" class="profile-panel-meta"></p>
+                </div>
+
+                <div id="results-refine-row" class="results-refine-row"></div>
+                <p id="results-refine-note" class="results-refine-note"></p>
+                <div id="results-guest-collection" class="results-guest-collection"></div>
+                <div id="results-compare-tray" class="results-compare-tray" hidden></div>
+            </div>
+
             <div id="profile-panel" class="profile-panel glass-panel" hidden>
                 <div class="profile-panel-header">
                     <div>
@@ -376,6 +391,13 @@
         </section>
     </main>
 
+    <div id="fragrance-detail-modal" class="modal-overlay">
+        <div class="glass-panel modal-content detail-modal-content">
+            <button id="btn-close-detail-modal" class="btn-close-modal" type="button">&times;</button>
+            <div id="fragrance-detail-content"></div>
+        </div>
+    </div>
+
     <!-- Auth Modal -->
     <div id="auth-modal" class="modal-overlay">
         <div class="glass-panel modal-content">
@@ -420,8 +442,8 @@
     </div>
 
     <!-- Scripts -->
-    <script src="js/data.js?v=frontend-20260404-01"></script>
-    <script src="js/logic.js?v=frontend-20260404-01"></script>
-    <script src="js/app.js?v=frontend-20260404-01"></script>
+    <script src="js/data.js?v=frontend-20260405-02"></script>
+    <script src="js/logic.js?v=frontend-20260405-02"></script>
+    <script src="js/app.js?v=frontend-20260405-02"></script>
 </body>
 </html>

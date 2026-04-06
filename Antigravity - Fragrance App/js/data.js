@@ -36,6 +36,15 @@ function isUsingFallbackCatalog() {
     return getCatalogSource() === CATALOG_SOURCE_FALLBACK;
 }
 
+function normalizeFragranceSearchValue(value) {
+    return String(value || '')
+        .toLowerCase()
+        .normalize('NFKD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-z0-9]+/g, ' ')
+        .trim();
+}
+
 async function requestApiJson(url, options = {}) {
     const response = await fetch(url, {
         credentials: 'include',
@@ -98,25 +107,56 @@ function loadFallbackFragranceCatalog() {
 
 // Fetch fragrance suggestions for the autocomplete search field.
 async function fetchFragranceSuggestions(query) {
-    if (isUsingFallbackCatalog()) {
+    const trimmedQuery = normalizeFragranceSearchValue(query);
+
+    if (trimmedQuery.length < 1) {
         return [];
     }
 
-    const trimmedQuery = String(query || '').trim();
+    return fragranceDB
+        .map((fragrance) => {
+            const nameNeedle = normalizeFragranceSearchValue(fragrance && fragrance.name);
+            const houseNeedle = normalizeFragranceSearchValue(fragrance && fragrance.house);
+            const combinedNeedle = `${nameNeedle} ${houseNeedle}`.trim();
+            let rank = -1;
+            let matchIndex = Number.MAX_SAFE_INTEGER;
 
-    if (trimmedQuery.length < 2) {
-        return [];
-    }
+            if (nameNeedle.startsWith(trimmedQuery)) {
+                rank = 0;
+                matchIndex = 0;
+            } else if (houseNeedle.startsWith(trimmedQuery)) {
+                rank = 1;
+                matchIndex = 0;
+            } else if (nameNeedle.includes(trimmedQuery)) {
+                rank = 2;
+                matchIndex = nameNeedle.indexOf(trimmedQuery);
+            } else if (houseNeedle.includes(trimmedQuery)) {
+                rank = 3;
+                matchIndex = houseNeedle.indexOf(trimmedQuery);
+            } else if (combinedNeedle.includes(trimmedQuery)) {
+                rank = 4;
+                matchIndex = combinedNeedle.indexOf(trimmedQuery);
+            }
 
-    const matches = await requestApiJson(
-        `${API_BASE}/fragrances/search?q=${encodeURIComponent(trimmedQuery)}`
-    );
+            if (rank === -1) {
+                return null;
+            }
 
-    if (!Array.isArray(matches)) {
-        throw new Error('The fragrance search response was not an array.');
-    }
-
-    return matches.map(fragrance => `${fragrance.name} — ${fragrance.house}`);
+            return {
+                fragrance,
+                rank,
+                matchIndex
+            };
+        })
+        .filter(Boolean)
+        .sort((left, right) => (
+            left.rank - right.rank
+            || left.matchIndex - right.matchIndex
+            || left.fragrance.name.localeCompare(right.fragrance.name)
+            || String(left.fragrance.house || '').localeCompare(String(right.fragrance.house || ''))
+        ))
+        .map(({ fragrance }) => `${fragrance.name} — ${fragrance.house}`)
+        .slice(0, 25);
 }
 
 // Send user preferences to the backend and get ranked recommendations.

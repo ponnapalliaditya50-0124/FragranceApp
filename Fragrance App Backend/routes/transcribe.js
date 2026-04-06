@@ -98,6 +98,12 @@ router.post("/", async (req, res) => {
       fallbackDurationMs: Number.isFinite(durationMs) ? durationMs : null
     });
 
+    if (transcription.quality === "retry") {
+      console.info(
+        `[transcribe] soft_retry reason=${transcription.retryReason || "unknown"} durationMs=${transcription.durationMs || 0}`
+      );
+    }
+
     res.json(transcription);
   } catch (error) {
     if (error instanceof OpenAiServiceError) {

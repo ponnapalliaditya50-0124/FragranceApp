@@ -105,8 +105,7 @@ class OlfactoryEngine {
         });
     }
 
-    // Legacy local scoring — replaced by backend API
-    calculateRecommendations(userState) {
+    calculateRecommendationPool(userState) {
         const favoriteFragrances = this.getMatchedFavoriteFragrances(userState);
         const favoriteIds = new Set(favoriteFragrances.map(fragrance => fragrance.id));
         const favoriteFamilies = new Set(
@@ -306,7 +305,12 @@ class OlfactoryEngine {
         // Sort descending by score
         scoredList.sort((a, b) => b.matchScore - a.matchScore);
 
-        return scoredList.slice(0, 3); // Return top 3
+        return scoredList;
+    }
+
+    // Legacy local scoring — replaced by backend API
+    calculateRecommendations(userState) {
+        return this.calculateRecommendationPool(userState).slice(0, 5);
     }
 
     determineArchetype(topFragrances) {
