@@ -335,9 +335,9 @@ function getBackendIssueDetails(error) {
     if (error && error.code === 'DB_NOT_SEEDED') {
         return {
             bannerTitle: 'Database Setup Required',
-            bannerCopy: 'The backend is running, but the fragrance catalog has not been seeded yet. Add data.csv to Fragrance App Backend/scripts/ and run npm run seed.',
+            bannerCopy: 'The backend is running, but the fragrance catalog has not been seeded yet. Add data.csv to scripts/ in the backend repo and run npm run seed.',
             resultsTitle: 'Database Setup Required',
-            resultsCopy: 'The backend is reachable, but the fragrance catalog is still empty. Add data.csv to Fragrance App Backend/scripts/ and run npm run seed, then try again.',
+            resultsCopy: 'The backend is reachable, but the fragrance catalog is still empty. Add data.csv to scripts/ in the backend repo and run npm run seed, then try again.',
             autocompleteCopy: 'Search will work after the fragrance database is seeded.'
         };
     }
