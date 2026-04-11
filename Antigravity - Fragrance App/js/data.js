@@ -1,5 +1,5 @@
 // Runtime API helpers plus static fragrance app configuration.
-const API_BASE = 'http://localhost:3001/api';
+const API_BASE = CONFIG.API_BASE;
 const CATALOG_SOURCE_BACKEND = 'backend';
 const CATALOG_SOURCE_FALLBACK = 'fallback';
 let fragranceDB = [];
