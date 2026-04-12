@@ -208,6 +208,238 @@ describe('OlfactoryEngine', () => {
         });
     });
 
+    describe('accord matching', () => {
+        test('selected accords add score', () => {
+            const state = {
+                selectedAccords: ['woody'],
+                budget: 3,
+                performance: 70,
+                occasions: [],
+                climates: [],
+            };
+            const results = engine.calculateRecommendationPool(state);
+            const aventus = results.find(r => r.id === 'creed-aventus');
+            expect(aventus.matchLog.some(l => l.includes('Accord match'))).toBe(true);
+        });
+    });
+
+    describe('scent description keyword matching', () => {
+        test('scent description adds family and note matches', () => {
+            const state = {
+                scentDescription: 'warm smoky cedar with vanilla',
+                budget: 3,
+                performance: 70,
+                occasions: [],
+                climates: [],
+            };
+            const results = engine.calculateRecommendationPool(state);
+            const aventus = results.find(r => r.id === 'creed-aventus');
+            // "cedar" should match as a keyword note and/or family
+            expect(aventus.matchLog.some(l => l.includes('Keyword'))).toBe(true);
+        });
+
+        test('empty scent description does not add score', () => {
+            const state = {
+                scentDescription: '',
+                budget: 3,
+                performance: 70,
+                occasions: [],
+                climates: [],
+            };
+            const results = engine.calculateRecommendationPool(state);
+            const aventus = results.find(r => r.id === 'creed-aventus');
+            expect(aventus.matchLog.every(l => !l.includes('Keyword'))).toBe(true);
+        });
+    });
+
+    describe('usage description keyword matching', () => {
+        test('office keyword matches Office occasion', () => {
+            const state = {
+                usageDescription: 'for the office',
+                budget: 3,
+                performance: 70,
+                occasions: [],
+                climates: [],
+            };
+            const results = engine.calculateRecommendationPool(state);
+            const sauvage = results.find(r => r.id === 'dior-sauvage');
+            expect(sauvage.matchLog.some(l => l.includes('Usage description match (Office)'))).toBe(true);
+        });
+
+        test('date night keyword matches evening occasion', () => {
+            const state = {
+                usageDescription: 'for a date night',
+                budget: 3,
+                performance: 70,
+                occasions: [],
+                climates: [],
+            };
+            const results = engine.calculateRecommendationPool(state);
+            const oud = results.find(r => r.id === 'tom-ford-oud-wood');
+            expect(oud.matchLog.some(l => l.includes('Usage description match (Evening/Intimate)'))).toBe(true);
+        });
+
+        test('casual keyword matches Casual occasion', () => {
+            const state = {
+                usageDescription: 'casual everyday wear',
+                budget: 3,
+                performance: 70,
+                occasions: [],
+                climates: [],
+            };
+            const results = engine.calculateRecommendationPool(state);
+            const aventus = results.find(r => r.id === 'creed-aventus');
+            expect(aventus.matchLog.some(l => l.includes('Usage description match (Casual)'))).toBe(true);
+        });
+
+        test('club keyword matches Clubbing occasion', () => {
+            // Need a fragrance with Clubbing tag — add inline
+            const dbWithClubbing = [
+                ...testDatabase,
+                {
+                    id: 'club-frag',
+                    name: 'Club Frag',
+                    house: 'Test',
+                    notes: { top: [], heart: [], base: [] },
+                    accordTags: [],
+                    noteFamilies: [],
+                    seasonTags: [],
+                    occasionTags: ['Clubbing'],
+                    priceTier: 2,
+                    longevityScore: 7,
+                    sillageScore: 7,
+                    blindBuyScore: 70,
+                },
+            ];
+            const eng = new OlfactoryEngine(dbWithClubbing, {});
+            const state = {
+                usageDescription: 'going to a club party',
+                budget: 2,
+                performance: 70,
+                occasions: [],
+                climates: [],
+            };
+            const results = eng.calculateRecommendationPool(state);
+            const club = results.find(r => r.id === 'club-frag');
+            expect(club.matchLog.some(l => l.includes('Usage description match (Clubbing)'))).toBe(true);
+        });
+    });
+
+    describe('favorites profile matching', () => {
+        test('favorite fragrance families boost score', () => {
+            const state = {
+                favorites: ['Aventus Creed'],
+                budget: 3,
+                performance: 70,
+                occasions: [],
+                climates: [],
+            };
+            const results = engine.calculateRecommendationPool(state);
+            // Aventus is woody/citrus/floral — Oud Wood shares woody
+            const oud = results.find(r => r.id === 'tom-ford-oud-wood');
+            expect(oud.matchLog.some(l => l.includes('Favorite profile family match'))).toBe(true);
+        });
+
+        test('favorite fragrance accords boost score', () => {
+            const state = {
+                favorites: ['Aventus Creed'],
+                budget: 3,
+                performance: 70,
+                occasions: [],
+                climates: [],
+            };
+            const results = engine.calculateRecommendationPool(state);
+            // Aventus has "woody" accord — Oud Wood also has "woody"
+            const oud = results.find(r => r.id === 'tom-ford-oud-wood');
+            expect(oud.matchLog.some(l => l.includes('Favorite profile accord match'))).toBe(true);
+        });
+
+        test('exact favorite fragrance gets highest bonus', () => {
+            const state = {
+                favorites: ['Aventus Creed'],
+                budget: 3,
+                performance: 70,
+                occasions: [],
+                climates: [],
+            };
+            const results = engine.calculateRecommendationPool(state);
+            const aventus = results.find(r => r.id === 'creed-aventus');
+            expect(aventus.matchLog.some(l => l.includes('+45: Favorite fragrance match'))).toBe(true);
+        });
+    });
+
+    describe('all-year signature climate', () => {
+        test('all-year signature season adds bonus', () => {
+            const dbWithAllYear = [
+                ...testDatabase,
+                {
+                    id: 'allyear-frag',
+                    name: 'All Year',
+                    house: 'Test',
+                    notes: { top: [], heart: [], base: [] },
+                    accordTags: [],
+                    noteFamilies: [],
+                    seasonTags: ['All-year Signature'],
+                    occasionTags: [],
+                    priceTier: 2,
+                    longevityScore: 5,
+                    sillageScore: 5,
+                    blindBuyScore: 60,
+                },
+            ];
+            const eng = new OlfactoryEngine(dbWithAllYear, {});
+            const state = {
+                budget: 2,
+                performance: 50,
+                occasions: [],
+                climates: ['Cold & Crisp'],
+            };
+            const results = eng.calculateRecommendationPool(state);
+            const allYear = results.find(r => r.id === 'allyear-frag');
+            expect(allYear.matchLog.some(l => l.includes('All Year'))).toBe(true);
+        });
+    });
+
+    describe('getRecommendations (async)', () => {
+        test('uses fallback catalog path when isUsingFallbackCatalog is true', async () => {
+            global.isUsingFallbackCatalog = () => true;
+            const state = { budget: 3, performance: 50, occasions: [], climates: [] };
+            const results = await engine.getRecommendations(state);
+            expect(results.length).toBeLessThanOrEqual(5);
+            delete global.isUsingFallbackCatalog;
+        });
+
+        test('calls fetchRecommendations when not fallback', async () => {
+            const mockResults = [{ id: 'mock', matchScore: 100 }];
+            global.isUsingFallbackCatalog = () => false;
+            global.fetchRecommendations = jest.fn().mockResolvedValue(mockResults);
+            const results = await engine.getRecommendations({});
+            expect(global.fetchRecommendations).toHaveBeenCalled();
+            expect(results).toEqual(mockResults);
+            delete global.isUsingFallbackCatalog;
+            delete global.fetchRecommendations;
+        });
+
+        test('falls back to local scoring when fetchRecommendations throws', async () => {
+            global.isUsingFallbackCatalog = () => false;
+            global.fetchRecommendations = jest.fn().mockRejectedValue(new Error('network'));
+            const state = { budget: 3, performance: 50, occasions: [], climates: [] };
+            const results = await engine.getRecommendations(state);
+            expect(results.length).toBeLessThanOrEqual(5);
+            delete global.isUsingFallbackCatalog;
+            delete global.fetchRecommendations;
+        });
+
+        test('rethrows when fetchRecommendations throws and no database', async () => {
+            const emptyEngine = new OlfactoryEngine([], {});
+            global.isUsingFallbackCatalog = () => false;
+            global.fetchRecommendations = jest.fn().mockRejectedValue(new Error('network'));
+            await expect(emptyEngine.getRecommendations({})).rejects.toThrow('network');
+            delete global.isUsingFallbackCatalog;
+            delete global.fetchRecommendations;
+        });
+    });
+
     describe('getMatchedFavoriteFragrances', () => {
         test('matches by name + house', () => {
             const state = { favorites: ['Aventus Creed'] };
@@ -246,6 +478,14 @@ describe('OlfactoryEngine', () => {
         test('returns default when no archetype field', () => {
             const result = engine.determineArchetype([{ name: 'Test' }]);
             expect(result.title).toBe('Profile Ready');
+        });
+
+        test('returns matching archetype when present', () => {
+            const archetypes = { 'The Explorer': 'You seek adventure and discovery.' };
+            const eng = new OlfactoryEngine(testDatabase, archetypes);
+            const result = eng.determineArchetype([{ archetype: 'The Explorer' }]);
+            expect(result.title).toBe('The Explorer');
+            expect(result.description).toBe('You seek adventure and discovery.');
         });
     });
 });
