@@ -1,0 +1,13 @@
+{
+  "name": "maison-daura-frontend",
+  "version": "1.0.0",
+  "description": "Maison d'Aura fragrance recommendation frontend",
+  "scripts": {
+    "test": "jest --coverage",
+    "test:watch": "jest --watch"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0",
+    "jest-environment-jsdom": "^29.7.0"
+  }
+}

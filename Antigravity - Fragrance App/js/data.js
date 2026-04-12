@@ -92,7 +92,7 @@ function createJsonRequestOptions(method, payload) {
 
 // Load the live fragrance catalog so starter picks, profile saves, and dupe lookups still work.
 async function loadFragranceCatalog() {
-    const catalog = await requestApiJson(`${API_BASE}/fragrances?limit=5000`);
+    const catalog = await requestApiJson(`${API_BASE}/fragrances?limit=25000`);
 
     if (!Array.isArray(catalog)) {
         throw new Error('The fragrance catalog response was not an array.');

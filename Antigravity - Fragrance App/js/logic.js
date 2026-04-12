@@ -164,9 +164,9 @@ class OlfactoryEngine {
             // 2b. Specific Note Match (precision bonus)
             if (userState.selectedNotes && userState.selectedNotes.length > 0) {
                 const allFragNotes = [
-                    ...fragrance.notes.top,
-                    ...fragrance.notes.heart,
-                    ...fragrance.notes.base
+                    ...(fragrance.notes?.top || []),
+                    ...(fragrance.notes?.heart || []),
+                    ...(fragrance.notes?.base || [])
                 ];
                 userState.selectedNotes.forEach(note => {
                     if (allFragNotes.some(fn => fn.toLowerCase() === note.toLowerCase())) {
@@ -194,9 +194,9 @@ class OlfactoryEngine {
                 keywords.forEach(keyword => {
                     // Direct note name matching
                     const allFragNotes = [
-                        ...fragrance.notes.top,
-                        ...fragrance.notes.heart,
-                        ...fragrance.notes.base
+                        ...(fragrance.notes?.top || []),
+                        ...(fragrance.notes?.heart || []),
+                        ...(fragrance.notes?.base || [])
                     ];
                     if (allFragNotes.some(fn => fn.toLowerCase().includes(keyword))) {
                         score += 10;
@@ -218,8 +218,8 @@ class OlfactoryEngine {
             }
 
             // 3. Occasion Match (Bonus)
-            userState.occasions.forEach(occ => {
-                if (fragrance.occasionTags.includes(occ)) {
+            (userState.occasions || []).forEach(occ => {
+                if (fragrance.occasionTags && fragrance.occasionTags.includes(occ)) {
                     score += 25;
                     matchLog.push(`+25: Occasion match (${occ})`);
                 }
@@ -313,6 +313,12 @@ class OlfactoryEngine {
         return this.calculateRecommendationPool(userState).slice(0, 5);
     }
 
+    getFragrancePowerScore(fragrance) {
+        const lon = fragrance.longevityScore || 0;
+        const sil = fragrance.sillageScore || 0;
+        return ((lon + sil) / 2) * 10;
+    }
+
     determineArchetype(topFragrances) {
         if (!topFragrances || topFragrances.length === 0) {
             return {
@@ -334,4 +340,9 @@ class OlfactoryEngine {
             description: this.archetypes[mainArchetype]
         };
     }
+}
+
+// Export for testing (Node.js/Jest). In browser, OlfactoryEngine is a global.
+if (typeof module !== 'undefined' && module.exports) {
+    module.exports = { OlfactoryEngine };
 }
