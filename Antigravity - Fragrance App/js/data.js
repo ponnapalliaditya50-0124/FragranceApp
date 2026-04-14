@@ -124,17 +124,20 @@ async function fetchFragranceSuggestions(query) {
             if (nameNeedle.startsWith(trimmedQuery)) {
                 rank = 0;
                 matchIndex = 0;
-            } else if (houseNeedle.startsWith(trimmedQuery)) {
+            } else if (houseNeedle === trimmedQuery) {
                 rank = 1;
                 matchIndex = 0;
-            } else if (nameNeedle.includes(trimmedQuery)) {
+            } else if (houseNeedle.startsWith(trimmedQuery)) {
                 rank = 2;
+                matchIndex = 0;
+            } else if (nameNeedle.includes(trimmedQuery)) {
+                rank = 3;
                 matchIndex = nameNeedle.indexOf(trimmedQuery);
             } else if (houseNeedle.includes(trimmedQuery)) {
-                rank = 3;
+                rank = 4;
                 matchIndex = houseNeedle.indexOf(trimmedQuery);
             } else if (combinedNeedle.includes(trimmedQuery)) {
-                rank = 4;
+                rank = 5;
                 matchIndex = combinedNeedle.indexOf(trimmedQuery);
             }
 
@@ -176,6 +179,8 @@ async function fetchRecommendations(userState) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
             favorites: userState.favorites || [],
+            excludeIds: userState.favorites || [],
+            gender: userState.gender || '',
             noteFamilies: userState.selectedFamilies || [],
             accordTags: userState.selectedAccords || [],
             occasions: userState.occasions || [],
@@ -369,11 +374,14 @@ const ACCORD_PALETTE = [
     }
 ];
 
+// blindBuyScore values are approximate placeholders; the backend derives scores
+// from community rating count, rating value, and moderate sillage weighting.
 const FALLBACK_FRAGRANCE_CATALOG = [
     {
         id: "creed-aventus",
         name: "Aventus",
         house: "Creed",
+        gender: "men",
         vibe: "Fresh & Powerful",
         priceTier: 3,
         longevityScore: 8.5,
@@ -395,6 +403,7 @@ const FALLBACK_FRAGRANCE_CATALOG = [
         id: "mfk-baccarat-rouge-540",
         name: "Baccarat Rouge 540",
         house: "MFK",
+        gender: "unisex",
         vibe: "Sweet & Magnetic",
         priceTier: 3,
         longevityScore: 9.2,
@@ -416,6 +425,7 @@ const FALLBACK_FRAGRANCE_CATALOG = [
         id: "chanel-bleu-de-chanel",
         name: "Bleu de Chanel",
         house: "Chanel",
+        gender: "men",
         vibe: "Clean & Versatile",
         priceTier: 3,
         longevityScore: 8.0,
@@ -437,6 +447,7 @@ const FALLBACK_FRAGRANCE_CATALOG = [
         id: "ysl-la-nuit-de-l-homme",
         name: "La Nuit de l'Homme",
         house: "YSL",
+        gender: "men",
         vibe: "Dark & Seductive",
         priceTier: 2,
         longevityScore: 7.4,
@@ -458,6 +469,7 @@ const FALLBACK_FRAGRANCE_CATALOG = [
         id: "tom-ford-oud-wood",
         name: "Oud Wood",
         house: "Tom Ford",
+        gender: "unisex",
         vibe: "Woody & Refined",
         priceTier: 3,
         longevityScore: 8.1,
@@ -479,6 +491,7 @@ const FALLBACK_FRAGRANCE_CATALOG = [
         id: "armani-acqua-di-gio-profumo",
         name: "Acqua di Giò Profumo",
         house: "Armani",
+        gender: "men",
         vibe: "Aquatic & Fresh",
         priceTier: 2,
         longevityScore: 8.1,
@@ -500,6 +513,7 @@ const FALLBACK_FRAGRANCE_CATALOG = [
         id: "tom-ford-tobacco-vanille",
         name: "Tobacco Vanille",
         house: "Tom Ford",
+        gender: "unisex",
         vibe: "Warm & Cozy",
         priceTier: 3,
         longevityScore: 9.1,
@@ -521,6 +535,7 @@ const FALLBACK_FRAGRANCE_CATALOG = [
         id: "le-labo-santal-33",
         name: "Santal 33",
         house: "Le Labo",
+        gender: "unisex",
         vibe: "Artsy & Unique",
         priceTier: 3,
         longevityScore: 7.8,

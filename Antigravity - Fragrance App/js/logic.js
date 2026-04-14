@@ -115,27 +115,35 @@ class OlfactoryEngine {
             favoriteFragrances.flatMap(fragrance => fragrance.accordTags || [])
         );
 
-        let scoredList = this.database.map(fragrance => {
+        // Hard pre-filters (applied before scoring)
+        const targetBudget = parseInt(userState.budget);
+        const hasBudgetFilter = Number.isFinite(targetBudget);
+        const genderPref = userState.gender || '';
+
+        const candidates = this.database.filter(fragrance => {
+            // Exclude exact favorites — don't recommend what the user already owns
+            if (favoriteIds.has(fragrance.id)) {
+                return false;
+            }
+            // Budget hard filter: exclude fragrances above the budget tier
+            if (hasBudgetFilter && Number.isInteger(fragrance.priceTier) && fragrance.priceTier > targetBudget) {
+                return false;
+            }
+            // Gender hard filter
+            if (genderPref) {
+                const fg = (fragrance.gender || '').toLowerCase();
+                if (fg) {
+                    if (genderPref === 'masculine' && fg !== 'men' && fg !== 'unisex') return false;
+                    if (genderPref === 'feminine' && fg !== 'women' && fg !== 'unisex') return false;
+                    if (genderPref === 'unisex' && fg !== 'unisex') return false;
+                }
+            }
+            return true;
+        });
+
+        let scoredList = candidates.map(fragrance => {
             let score = 100;
             let matchLog = [];
-
-            // 1. Budget Filter
-            const targetBudget = parseInt(userState.budget);
-            if (fragrance.priceTier > targetBudget) {
-                score -= 30; 
-                matchLog.push("-30: Over budget");
-            } else if (fragrance.priceTier === targetBudget) {
-                score += 15;
-                matchLog.push("+15: Exact budget match");
-            } else {
-                score += 5;
-                matchLog.push("+5: Under budget");
-            }
-
-            if (favoriteIds.has(fragrance.id)) {
-                score += 45;
-                matchLog.push("+45: Favorite fragrance match");
-            }
 
             favoriteFamilies.forEach(familyId => {
                 if (fragrance.noteFamilies && fragrance.noteFamilies.includes(familyId)) {

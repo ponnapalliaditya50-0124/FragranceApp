@@ -76,6 +76,7 @@ const state = {
     selectedFamilies: [],      // ["woody", "spicy", ...]
     selectedNotes: [],         // Specific notes from sub-grids
     selectedAccords: [],       // ["Oriental", "Gourmand", ...]
+    gender: '',
     occasions: [],
     climates: [],
     performance: 50,
@@ -128,10 +129,6 @@ const MAX_COMPARE_ITEMS = 3;
 const GUEST_FEEDBACK_VALUES = ['love', 'maybe', 'pass'];
 const RESULTS_REFINE_OPTIONS = [
     { id: 'default', label: 'Best Match' },
-    { id: 'cheaper', label: 'Cheaper' },
-    { id: 'stronger', label: 'Stronger' },
-    { id: 'office', label: 'Office-Safe' },
-    { id: 'less-sweet', label: 'Less Sweet' },
     { id: 'unique', label: 'More Unique' }
 ];
 
@@ -151,7 +148,9 @@ function createEmptyGuestExperienceState() {
 const guestExperienceState = createEmptyGuestExperienceState();
 const resultsViewState = {
     recommendationPool: [],
-    activeRefine: 'default',
+    activeRefine: [],
+    refinePrice: 50,
+    refineSillage: 50,
     visibleCount: DEFAULT_RESULTS_VISIBLE_COUNT,
     detailFragranceId: ''
 };
@@ -280,7 +279,9 @@ function clearGuestDraftState() {
     guestExperienceState.currentStep = 1;
     guestExperienceState.activeViewId = 'wizard-view';
     resultsViewState.recommendationPool = [];
-    resultsViewState.activeRefine = 'default';
+    resultsViewState.activeRefine = [];
+    resultsViewState.refinePrice = 50;
+    resultsViewState.refineSillage = 50;
     resultsViewState.visibleCount = DEFAULT_RESULTS_VISIBLE_COUNT;
     resultsViewState.detailFragranceId = '';
 }
@@ -399,6 +400,12 @@ function isDisplayNumber(value) {
 
 function formatPriceTier(value) {
     return Number.isInteger(value) && value > 0 ? '$'.repeat(value) : '—';
+}
+
+const PRICE_TIER_NAMES = { 1: 'Designer/Accessible', 2: 'Premium Designer', 3: 'High-End Niche' };
+
+function formatPriceTierLabel(value) {
+    return PRICE_TIER_NAMES[value] || '';
 }
 
 function formatMetricScore(value) {
@@ -598,7 +605,9 @@ function primeResultsExperience(preferredFragrances = state.latestRecommendation
     }
 
     resultsViewState.recommendationPool = recommendationPool;
-    resultsViewState.activeRefine = 'default';
+    resultsViewState.activeRefine = [];
+    resultsViewState.refinePrice = 50;
+    resultsViewState.refineSillage = 50;
     resultsViewState.visibleCount = DEFAULT_RESULTS_VISIBLE_COUNT;
 
     if (
@@ -720,52 +729,52 @@ function getRefinedRecommendationPool() {
         || String(left.name || '').localeCompare(String(right.name || ''))
     );
 
-    switch (resultsViewState.activeRefine) {
-    case 'cheaper':
-        return basePool.sort((left, right) => (
-            Number(left.priceTier || 99) - Number(right.priceTier || 99)
-            || sortByMatch(left, right)
-        ));
-    case 'stronger':
-        return basePool.sort((left, right) => (
-            getFragrancePowerScore(right) - getFragrancePowerScore(left)
-            || sortByMatch(left, right)
-        ));
-    case 'office':
-        return basePool.sort((left, right) => (
-            Number(isOfficeFriendlyFragrance(right)) - Number(isOfficeFriendlyFragrance(left))
-            || sortByMatch(left, right)
-        ));
-    case 'less-sweet':
-        return basePool.sort((left, right) => (
-            getFragranceSweetnessWeight(left) - getFragranceSweetnessWeight(right)
-            || sortByMatch(left, right)
-        ));
-    case 'unique':
-        return basePool.sort((left, right) => (
-            getFragranceUniquenessScore(right) - getFragranceUniquenessScore(left)
-            || sortByMatch(left, right)
-        ));
-    default:
+    const active = resultsViewState.activeRefine;
+    const priceWeight = Math.max(0, (50 - resultsViewState.refinePrice) / 50);
+    const sillageWeight = (resultsViewState.refineSillage - 50) / 50;
+    const hasRefine = active.length > 0 || priceWeight > 0 || sillageWeight !== 0;
+
+    if (!hasRefine) {
         return basePool.sort(sortByMatch);
     }
+
+    const maxPrice = Math.max(...basePool.map(f => Number(f.priceTier || 0)), 1);
+    const maxUnique = Math.max(...basePool.map(f => getFragranceUniquenessScore(f)), 1);
+
+    const computeRefineScore = (fragrance) => {
+        let refineScore = 0;
+        if (priceWeight > 0) {
+            refineScore += priceWeight * (1 - (Number(fragrance.priceTier || 99) / (maxPrice || 1)));
+        }
+        if (sillageWeight !== 0) {
+            const sillageNorm = (fragrance.sillageScore || 0) / 10;
+            refineScore += sillageWeight > 0
+                ? sillageWeight * sillageNorm
+                : Math.abs(sillageWeight) * (1 - sillageNorm);
+        }
+        if (active.includes('unique')) {
+            refineScore += getFragranceUniquenessScore(fragrance) / (maxUnique || 1);
+        }
+        return refineScore;
+    };
+
+    return basePool.sort((left, right) => (
+        computeRefineScore(right) - computeRefineScore(left)
+        || sortByMatch(left, right)
+    ));
 }
 
 function getActiveRefineNote() {
-    switch (resultsViewState.activeRefine) {
-    case 'cheaper':
-        return 'Budget-first sorting favors lower tiers before match score takes over.';
-    case 'stronger':
-        return 'Projection and longevity are taking priority in this pass.';
-    case 'office':
-        return 'Everyday-safe and office-friendly fragrances are floating to the top.';
-    case 'less-sweet':
-        return 'Sweeter, richer picks are being pushed down in favor of drier options.';
-    case 'unique':
-        return 'More distinctive, less universally safe profiles are getting the spotlight.';
-    default:
-        return 'Use a refine chip to nudge this set without restarting the wizard.';
+    const parts = [];
+    if (resultsViewState.refinePrice < 50) parts.push('lower price tiers');
+    if (resultsViewState.refineSillage > 50) parts.push('stronger projection');
+    if (resultsViewState.refineSillage < 50) parts.push('lighter sillage');
+    if (resultsViewState.activeRefine.includes('unique')) parts.push('more unique');
+
+    if (parts.length === 0) {
+        return 'Use the sliders or chips to nudge this set without restarting the wizard.';
     }
+    return `Favoring ${parts.join(' + ')}.`;
 }
 
 function addReasonIfNeeded(reasons, copy) {
@@ -965,11 +974,12 @@ function renderResultsUtilityPanel() {
     const panel = document.getElementById('results-utility-panel');
     const meta = document.getElementById('results-utility-meta');
     const refineRow = document.getElementById('results-refine-row');
+    const refineSliders = document.getElementById('results-refine-sliders');
     const refineNote = document.getElementById('results-refine-note');
     const collection = document.getElementById('results-guest-collection');
     const compareTray = document.getElementById('results-compare-tray');
 
-    if (!panel || !meta || !refineRow || !refineNote || !collection || !compareTray) {
+    if (!panel || !meta || !refineRow || !refineSliders || !refineNote || !collection || !compareTray) {
         return;
     }
 
@@ -991,11 +1001,19 @@ function renderResultsUtilityPanel() {
     panel.hidden = false;
     meta.innerText = `Showing ${visibleCount} of ${refinedPool.length} local matches`;
 
+    const activeSet = new Set(resultsViewState.activeRefine);
+    const hasNonDefaultState = resultsViewState.activeRefine.length > 0
+        || resultsViewState.refinePrice !== 50
+        || resultsViewState.refineSillage !== 50
+        || resultsViewState.visibleCount > DEFAULT_RESULTS_VISIBLE_COUNT;
+    const priceProgress = resultsViewState.refinePrice + '%';
+    const sillageProgress = resultsViewState.refineSillage + '%';
+
     refineRow.innerHTML = `
         ${RESULTS_REFINE_OPTIONS.map((option) => `
             <button
                 type="button"
-                class="results-utility-btn${resultsViewState.activeRefine === option.id ? ' active' : ''}"
+                class="results-utility-btn${option.id === 'default' ? (activeSet.size === 0 && !hasNonDefaultState ? ' active' : '') : (activeSet.has(option.id) ? ' active' : '')}"
                 data-refine="${option.id}"
             >
                 ${option.label}
@@ -1006,16 +1024,67 @@ function renderResultsUtilityPanel() {
                 Show More
             </button>
         ` : ''}
-        ${(resultsViewState.activeRefine !== 'default' || resultsViewState.visibleCount > DEFAULT_RESULTS_VISIBLE_COUNT) ? `
+        ${hasNonDefaultState ? `
             <button type="button" class="results-utility-btn secondary" data-results-action="reset">
                 Reset View
             </button>
         ` : ''}
     `;
 
+    refineSliders.innerHTML = `
+        <div class="refine-slider-row">
+            <div class="refine-slider-group">
+                <span class="refine-slider-label">Price</span>
+                <div class="slider-container">
+                    <input type="range" class="gold-slider" id="refine-price-slider" min="0" max="100" value="${resultsViewState.refinePrice}" style="background: linear-gradient(to right, var(--clr-bar-fill-end) ${priceProgress}, var(--clr-slider-track) ${priceProgress})">
+                    <div class="slider-labels"><span>Cheaper</span><span>No Preference</span></div>
+                </div>
+            </div>
+            <div class="refine-slider-group">
+                <span class="refine-slider-label">Sillage</span>
+                <div class="slider-container">
+                    <input type="range" class="gold-slider" id="refine-sillage-slider" min="0" max="100" value="${resultsViewState.refineSillage}" style="background: linear-gradient(to right, var(--clr-bar-fill-end) ${sillageProgress}, var(--clr-slider-track) ${sillageProgress})">
+                    <div class="slider-labels"><span>Weaker</span><span>Stronger</span></div>
+                </div>
+            </div>
+        </div>
+    `;
+
+    let refineSliderTimer = null;
+    const bindRefineSlider = (id, stateKey) => {
+        const slider = refineSliders.querySelector('#' + id);
+        if (!slider) return;
+        slider.addEventListener('input', () => {
+            const val = parseInt(slider.value, 10);
+            resultsViewState[stateKey] = val;
+            const progress = val + '%';
+            slider.style.background = `linear-gradient(to right, var(--clr-bar-fill-end) ${progress}, var(--clr-slider-track) ${progress})`;
+            if (refineSliderTimer) window.clearTimeout(refineSliderTimer);
+            refineSliderTimer = window.setTimeout(() => {
+                refineSliderTimer = null;
+                resultsViewState.visibleCount = DEFAULT_RESULTS_VISIBLE_COUNT;
+                renderResultsCards(state.latestRecommendations);
+            }, 180);
+        });
+    };
+    bindRefineSlider('refine-price-slider', 'refinePrice');
+    bindRefineSlider('refine-sillage-slider', 'refineSillage');
+
     refineRow.querySelectorAll('[data-refine]').forEach((button) => {
         button.addEventListener('click', () => {
-            resultsViewState.activeRefine = button.getAttribute('data-refine') || 'default';
+            const id = button.getAttribute('data-refine') || 'default';
+            if (id === 'default') {
+                resultsViewState.activeRefine = [];
+                resultsViewState.refinePrice = 50;
+                resultsViewState.refineSillage = 50;
+            } else {
+                const idx = resultsViewState.activeRefine.indexOf(id);
+                if (idx >= 0) {
+                    resultsViewState.activeRefine.splice(idx, 1);
+                } else {
+                    resultsViewState.activeRefine.push(id);
+                }
+            }
             resultsViewState.visibleCount = DEFAULT_RESULTS_VISIBLE_COUNT;
             renderResultsCards(state.latestRecommendations);
         });
@@ -1028,7 +1097,9 @@ function renderResultsUtilityPanel() {
             if (action === 'show-more') {
                 resultsViewState.visibleCount += RESULTS_VISIBLE_INCREMENT;
             } else if (action === 'reset') {
-                resultsViewState.activeRefine = 'default';
+                resultsViewState.activeRefine = [];
+                resultsViewState.refinePrice = 50;
+                resultsViewState.refineSillage = 50;
                 resultsViewState.visibleCount = DEFAULT_RESULTS_VISIBLE_COUNT;
             }
 
@@ -1118,8 +1189,8 @@ function renderFragranceDetail(fragrance) {
     const dupe = Array.isArray(engine.database)
         ? engine.database.find(candidate => candidate.dupeOf === fragrance.id && candidate.priceTier < fragrance.priceTier)
         : null;
-    const renderNoteSection = (label, notes) => `
-        <div class="detail-note-group">
+    const renderNoteSection = (label, notes, tier) => `
+        <div class="note-tier note-tier--${tier}">
             <span class="detail-note-label">${label}</span>
             <div class="detail-chip-row">
                 ${(notes || []).length > 0
@@ -1152,6 +1223,7 @@ function renderFragranceDetail(fragrance) {
                 <div class="dossier-takeaway">
                     <span class="wizard-summary-label">Blind Buy</span>
                     <strong>${formatBlindBuyMetric(fragrance.blindBuyScore)}</strong>
+                    <span class="detail-metric-note">Based on community ratings and wearability profile</span>
                 </div>
                 <div class="dossier-takeaway">
                     <span class="wizard-summary-label">Power</span>
@@ -1160,40 +1232,11 @@ function renderFragranceDetail(fragrance) {
             </div>
 
             <section class="detail-section">
-                <h3>Why It Matched</h3>
-                <div class="detail-chip-row">
-                    ${insight.reasons.map(reason => `<span class="dossier-reason-chip">${escapeHtml(reason)}</span>`).join('')}
-                </div>
-            </section>
-
-            <section class="detail-section">
                 <h3>Note Pyramid</h3>
-                <div class="detail-grid">
-                    ${renderNoteSection('Top', fragrance.notes && fragrance.notes.top)}
-                    ${renderNoteSection('Heart', fragrance.notes && fragrance.notes.heart)}
-                    ${renderNoteSection('Base', fragrance.notes && fragrance.notes.base)}
-                </div>
-            </section>
-
-            <section class="detail-section">
-                <h3>Where It Shines</h3>
-                <div class="detail-grid">
-                    <div class="dossier-takeaway">
-                        <span class="wizard-summary-label">Best For</span>
-                        <p>${escapeHtml(insight.bestFor)}</p>
-                    </div>
-                    <div class="dossier-takeaway">
-                        <span class="wizard-summary-label">Less Ideal For</span>
-                        <p>${escapeHtml(insight.notIdealFor)}</p>
-                    </div>
-                    <div class="dossier-takeaway">
-                        <span class="wizard-summary-label">Budget Read</span>
-                        <p>${escapeHtml(insight.budgetTakeaway)}</p>
-                    </div>
-                    <div class="dossier-takeaway">
-                        <span class="wizard-summary-label">Performance Read</span>
-                        <p>${escapeHtml(insight.performanceTakeaway)}</p>
-                    </div>
+                <div class="note-pyramid">
+                    ${renderNoteSection('Top', fragrance.notes && fragrance.notes.top, 'top')}
+                    ${renderNoteSection('Heart', fragrance.notes && fragrance.notes.heart, 'heart')}
+                    ${renderNoteSection('Base', fragrance.notes && fragrance.notes.base, 'base')}
                 </div>
             </section>
 
@@ -1429,7 +1472,7 @@ function initWizard() {
             try {
                 const matches = (await fetchFragranceSuggestions(query))
                     .filter(item => !state.favorites.includes(item))
-                    .slice(0, 8);
+                    .slice(0, 20);
 
                 if (requestId !== autocompleteRequestId) return;
                 showDropdown(matches);
@@ -3004,6 +3047,7 @@ function initWizard() {
     syncAccordPills();
 
     // Step 3: Selection grids and Reveal Logic
+    const genderSection = document.getElementById('gender-section');
     const occasionSection = document.getElementById('occasion-section');
     const climateSection = document.getElementById('climate-section');
     const perfSection = document.getElementById('perf-section');
@@ -3014,7 +3058,7 @@ function initWizard() {
     const clearUsageIntentRevealTimers = () => {
         usageIntentRevealTimers.forEach(timerId => window.clearTimeout(timerId));
         usageIntentRevealTimers = [];
-        [occasionSection, climateSection, perfSection, budgetSection].forEach(section => {
+        [genderSection, occasionSection, climateSection, perfSection, budgetSection].forEach(section => {
             if (section) {
                 section.dataset.revealScheduled = 'false';
             }
@@ -3063,22 +3107,16 @@ function initWizard() {
             || state.climates.length > 0
         );
 
-        queueSectionReveal(occasionSection, baseDelay);
-        queueSectionReveal(climateSection, baseDelay + staggerDelay);
+        queueSectionReveal(genderSection, baseDelay);
+        queueSectionReveal(occasionSection, baseDelay + staggerDelay);
+        queueSectionReveal(climateSection, baseDelay + (staggerDelay * 2));
+        queueSectionReveal(budgetSection, baseDelay + (staggerDelay * 3));
 
         if (hasUsageInput) {
             if (immediate) {
                 revealSection(perfSection, { scroll: true });
             } else {
-                queueSectionReveal(perfSection, baseDelay + (staggerDelay * 2));
-            }
-        }
-
-        if (sliderInteracted) {
-            if (immediate) {
-                revealSection(budgetSection, { scroll: true });
-            } else {
-                queueSectionReveal(budgetSection, baseDelay + (staggerDelay * 3));
+                queueSectionReveal(perfSection, baseDelay + (staggerDelay * 4));
             }
         }
     };
@@ -3086,7 +3124,7 @@ function initWizard() {
     const resetUsageIntentCascade = () => {
         clearUsageIntentRevealTimers();
         sliderInteracted = false;
-        [occasionSection, climateSection, perfSection, budgetSection].forEach(section => {
+        [genderSection, occasionSection, climateSection, perfSection, budgetSection].forEach(section => {
             if (section) {
                 section.classList.remove('revealed');
                 section.dataset.revealScheduled = 'false';
@@ -3102,6 +3140,7 @@ function initWizard() {
         usageDesc.addEventListener('input', () => revealUsageIntentSections({ immediate: true }));
     }
 
+    const genderPillLookup = new Map();
     const occasionPillLookup = new Map();
     const climatePillLookup = new Map();
 
@@ -3112,6 +3151,7 @@ function initWizard() {
     };
 
     const syncUsageIntentSelections = () => {
+        syncSelectablePills(genderPillLookup, state.gender ? [state.gender] : []);
         syncSelectablePills(occasionPillLookup, state.occasions);
         syncSelectablePills(climatePillLookup, state.climates);
         renderInterpretationPanel('usage');
@@ -3151,8 +3191,31 @@ function initWizard() {
         });
     };
 
+    // Gender pills use lowercase data-val to match state.gender values
+    ['Masculine', 'Feminine', 'Unisex'].forEach(label => {
+        const grid = document.getElementById('gender-grid');
+        const pill = document.createElement('div');
+        pill.className = 'select-pill';
+        pill.setAttribute('data-type', 'gender');
+        pill.setAttribute('data-val', label.toLowerCase());
+        pill.textContent = label;
+        grid.appendChild(pill);
+        genderPillLookup.set(label.toLowerCase(), pill);
+    });
     populatePillGrid('occasion-grid', OCCASION_OPTIONS, 'occ', occasionPillLookup);
     populatePillGrid('climate-grid', CLIMATE_OPTIONS, 'cli', climatePillLookup);
+
+    // Gender is single-select (toggle on/off)
+    const genderGrid = document.getElementById('gender-grid');
+    genderGrid.querySelectorAll('.select-pill').forEach(pill => {
+        pill.addEventListener('click', () => {
+            const val = pill.getAttribute('data-val');
+            state.gender = state.gender === val ? '' : val;
+            syncUsageIntentSelections();
+            revealUsageIntentSections({ immediate: true });
+        });
+    });
+
     bindSelectables('occasion-grid', 'occasions', occasionPillLookup);
     bindSelectables('climate-grid', 'climates', climatePillLookup);
     syncUsageIntentSelections();
@@ -3260,7 +3323,7 @@ function initWizard() {
         const loaderText = document.getElementById('loader-text');
         if (loaderText) {
             loaderText.innerText = 'Extracting scent markers...';
-            loaderText.style.opacity = '1';
+            loaderText.classList.remove('fading');
         }
 
         persistGuestExperience();
@@ -3412,6 +3475,7 @@ function buildLatestProfileSnapshot() {
         selectedFamilies: [...state.selectedFamilies],
         selectedNotes: [...state.selectedNotes],
         selectedAccords: [...state.selectedAccords],
+        gender: state.gender,
         occasions: [...state.occasions],
         climates: [...state.climates],
         performance: state.performance,
@@ -3445,6 +3509,7 @@ function applyLatestProfileSnapshot(profile) {
     state.selectedFamilies = Array.isArray(snapshot.selectedFamilies) ? [...snapshot.selectedFamilies] : [];
     state.selectedNotes = Array.isArray(snapshot.selectedNotes) ? [...snapshot.selectedNotes] : [];
     state.selectedAccords = Array.isArray(snapshot.selectedAccords) ? [...snapshot.selectedAccords] : [];
+    state.gender = typeof snapshot.gender === 'string' ? snapshot.gender : '';
     state.occasions = Array.isArray(snapshot.occasions) ? [...snapshot.occasions] : [];
     state.climates = Array.isArray(snapshot.climates) ? [...snapshot.climates] : [];
     state.performance = Number.isFinite(Number(snapshot.performance)) ? Number(snapshot.performance) : 50;
@@ -4189,7 +4254,7 @@ function setAuthError(message = '') {
     if (!authError) return;
 
     authError.textContent = message;
-    authError.style.display = message ? 'block' : 'none';
+    authError.hidden = !message;
 }
 
 function updateAuthModalContent() {
@@ -4768,7 +4833,7 @@ function renderPills(container, items, onRemove) {
         const pill = document.createElement('div');
         pill.className = 'select-pill selected';
         pill.innerText = item + "  ✕";
-        pill.style.fontSize = '0.8rem';
+        pill.classList.add('pill-compact');
         pill.addEventListener('click', () => onRemove(item));
         container.appendChild(pill);
     });
@@ -4794,7 +4859,7 @@ function updateWizardUI() {
     const btnNext = document.getElementById('btn-next');
 
     if (btnPrev) {
-        btnPrev.style.visibility = currentStep === 1 ? 'hidden' : 'visible';
+        btnPrev.hidden = currentStep === 1;
     }
 
     if (btnNext) {
@@ -4831,7 +4896,9 @@ function showResultsError(issue) {
     state.latestArchetype = null;
     state.latestRecommendations = [];
     resultsViewState.recommendationPool = [];
-    resultsViewState.activeRefine = 'default';
+    resultsViewState.activeRefine = [];
+    resultsViewState.refinePrice = 50;
+    resultsViewState.refineSillage = 50;
     resultsViewState.visibleCount = DEFAULT_RESULTS_VISIBLE_COUNT;
     closeFragranceDetailModal();
 
@@ -4870,10 +4937,10 @@ async function processResults() {
     const interval = setInterval(() => {
         phaseIdx++;
         if (phaseIdx < loadingPhases.length) {
-            loaderText.style.opacity = 0;
+            loaderText.classList.add('fading');
             setTimeout(() => {
                 if (loaderText) loaderText.innerText = loadingPhases[phaseIdx];
-                if (loaderText) loaderText.style.opacity = 1; 
+                if (loaderText) loaderText.classList.remove('fading');
             }, 300);
         } else {
             clearInterval(interval);
@@ -4882,7 +4949,7 @@ async function processResults() {
 
     if (loaderText) {
         loaderText.innerText = loadingPhases[0];
-        loaderText.style.opacity = 1;
+        loaderText.classList.remove('fading');
     }
 
     try {
@@ -4903,7 +4970,7 @@ async function processResults() {
     } finally {
         if (loaderText) {
             loaderText.innerText = loadingPhases[0];
-            loaderText.style.opacity = 1;
+            loaderText.classList.remove('fading');
         }
     }
 }
@@ -4935,6 +5002,8 @@ function displayResults(archetype, topFrags) {
 function renderResultsCards(topFrags) {
     const grid = document.getElementById('results-grid');
     if (!grid) return;
+
+    grid.classList.add('crossfading');
 
     if (getActiveResultsPool().length === 0 && Array.isArray(topFrags) && topFrags.length > 0) {
         primeResultsExperience(topFrags);
@@ -5021,7 +5090,7 @@ function renderResultsCards(topFrags) {
             <article
                 class="glass-panel dossier-card"
                 data-fragrance-id="${frag.id}"
-                style="animation-delay: ${idx * 0.25}s"
+                style="animation-delay: ${idx * 0.08}s"
                 tabindex="0"
                 role="button"
                 aria-label="Open details for ${escapeHtml(frag.name)} by ${escapeHtml(frag.house)}"
@@ -5033,6 +5102,11 @@ function renderResultsCards(topFrags) {
                         <div class="d-name">${frag.name}</div>
                     </div>
                     <div class="d-tier">${tierStr}</div>
+                </div>
+
+                <div class="d-tier-badge">
+                    <span class="d-tier-symbols">${tierStr}</span>
+                    <span class="d-tier-name">${formatPriceTierLabel(frag.priceTier)}</span>
                 </div>
 
                 <div class="dossier-insight-panel">
@@ -5205,6 +5279,8 @@ function renderResultsCards(topFrags) {
     });
 
     renderResultsUtilityPanel();
+
+    requestAnimationFrame(() => grid.classList.remove('crossfading'));
 
     const detailModal = document.getElementById('fragrance-detail-modal');
     if (detailModal && detailModal.classList.contains('active') && resultsViewState.detailFragranceId) {

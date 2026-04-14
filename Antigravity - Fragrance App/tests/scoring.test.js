@@ -177,7 +177,7 @@ describe('OlfactoryEngine', () => {
         test('specific note match adds score', () => {
             const state = {
                 selectedNotes: ['Bergamot'],
-                budget: 3,
+                budget: 4,
                 performance: 70,
                 occasions: [],
                 climates: [],
@@ -189,7 +189,7 @@ describe('OlfactoryEngine', () => {
 
         test('climate match via season mapping', () => {
             const state = {
-                budget: 3,
+                budget: 4,
                 performance: 70,
                 occasions: [],
                 climates: ['Cold & Crisp'],
@@ -200,7 +200,7 @@ describe('OlfactoryEngine', () => {
         });
 
         test('results are sorted by matchScore descending', () => {
-            const state = { budget: 3, performance: 50, occasions: [], climates: [] };
+            const state = { budget: 4, performance: 50, occasions: [], climates: [] };
             const results = engine.calculateRecommendationPool(state);
             for (let i = 1; i < results.length; i++) {
                 expect(results[i - 1].matchScore).toBeGreaterThanOrEqual(results[i].matchScore);
@@ -212,7 +212,7 @@ describe('OlfactoryEngine', () => {
         test('selected accords add score', () => {
             const state = {
                 selectedAccords: ['woody'],
-                budget: 3,
+                budget: 4,
                 performance: 70,
                 occasions: [],
                 climates: [],
@@ -227,7 +227,7 @@ describe('OlfactoryEngine', () => {
         test('scent description adds family and note matches', () => {
             const state = {
                 scentDescription: 'warm smoky cedar with vanilla',
-                budget: 3,
+                budget: 4,
                 performance: 70,
                 occasions: [],
                 climates: [],
@@ -241,7 +241,7 @@ describe('OlfactoryEngine', () => {
         test('empty scent description does not add score', () => {
             const state = {
                 scentDescription: '',
-                budget: 3,
+                budget: 4,
                 performance: 70,
                 occasions: [],
                 climates: [],
@@ -269,7 +269,7 @@ describe('OlfactoryEngine', () => {
         test('date night keyword matches evening occasion', () => {
             const state = {
                 usageDescription: 'for a date night',
-                budget: 3,
+                budget: 4,
                 performance: 70,
                 occasions: [],
                 climates: [],
@@ -282,7 +282,7 @@ describe('OlfactoryEngine', () => {
         test('casual keyword matches Casual occasion', () => {
             const state = {
                 usageDescription: 'casual everyday wear',
-                budget: 3,
+                budget: 4,
                 performance: 70,
                 occasions: [],
                 climates: [],
@@ -329,7 +329,7 @@ describe('OlfactoryEngine', () => {
         test('favorite fragrance families boost score', () => {
             const state = {
                 favorites: ['Aventus Creed'],
-                budget: 3,
+                budget: 4,
                 performance: 70,
                 occasions: [],
                 climates: [],
@@ -343,7 +343,7 @@ describe('OlfactoryEngine', () => {
         test('favorite fragrance accords boost score', () => {
             const state = {
                 favorites: ['Aventus Creed'],
-                budget: 3,
+                budget: 4,
                 performance: 70,
                 occasions: [],
                 climates: [],
@@ -354,17 +354,17 @@ describe('OlfactoryEngine', () => {
             expect(oud.matchLog.some(l => l.includes('Favorite profile accord match'))).toBe(true);
         });
 
-        test('exact favorite fragrance gets highest bonus', () => {
+        test('exact favorite fragrance is excluded from results', () => {
             const state = {
                 favorites: ['Aventus Creed'],
-                budget: 3,
+                budget: 4,
                 performance: 70,
                 occasions: [],
                 climates: [],
             };
             const results = engine.calculateRecommendationPool(state);
             const aventus = results.find(r => r.id === 'creed-aventus');
-            expect(aventus.matchLog.some(l => l.includes('+45: Favorite fragrance match'))).toBe(true);
+            expect(aventus).toBeUndefined();
         });
     });
 
@@ -397,6 +397,92 @@ describe('OlfactoryEngine', () => {
             const results = eng.calculateRecommendationPool(state);
             const allYear = results.find(r => r.id === 'allyear-frag');
             expect(allYear.matchLog.some(l => l.includes('All Year'))).toBe(true);
+        });
+    });
+
+    describe('budget hard filter', () => {
+        test('excludes fragrances above budget tier', () => {
+            const state = { budget: 2, performance: 50, occasions: [], climates: [] };
+            const results = engine.calculateRecommendationPool(state);
+            // priceTier 4 fragrances (aventus, oud-wood) should be excluded
+            expect(results.find(r => r.id === 'creed-aventus')).toBeUndefined();
+            expect(results.find(r => r.id === 'tom-ford-oud-wood')).toBeUndefined();
+            // priceTier 2 and below should remain
+            expect(results.find(r => r.id === 'test-empty-frag')).toBeDefined();
+        });
+
+        test('includes fragrances at or below budget tier', () => {
+            const state = { budget: 4, performance: 50, occasions: [], climates: [] };
+            const results = engine.calculateRecommendationPool(state);
+            expect(results.find(r => r.id === 'creed-aventus')).toBeDefined();
+            expect(results.find(r => r.id === 'dior-sauvage')).toBeDefined();
+        });
+
+        test('fragrances with missing priceTier pass through filter', () => {
+            const dbWithNoPriceTier = [
+                { id: 'no-tier', name: 'No Tier', house: 'Test', notes: null, accordTags: null,
+                  noteFamilies: null, seasonTags: null, occasionTags: null,
+                  longevityScore: 5, sillageScore: 5, blindBuyScore: 50 },
+            ];
+            const eng = new OlfactoryEngine(dbWithNoPriceTier, {});
+            const state = { budget: 1, performance: 50, occasions: [], climates: [] };
+            const results = eng.calculateRecommendationPool(state);
+            expect(results.find(r => r.id === 'no-tier')).toBeDefined();
+        });
+    });
+
+    describe('gender hard filter', () => {
+        const genderDb = [
+            { id: 'mens', name: 'Mens', house: 'T', gender: 'men', priceTier: 1,
+              notes: null, accordTags: null, noteFamilies: null, seasonTags: null,
+              occasionTags: null, longevityScore: 5, sillageScore: 5, blindBuyScore: 50 },
+            { id: 'womens', name: 'Womens', house: 'T', gender: 'women', priceTier: 1,
+              notes: null, accordTags: null, noteFamilies: null, seasonTags: null,
+              occasionTags: null, longevityScore: 5, sillageScore: 5, blindBuyScore: 50 },
+            { id: 'uni', name: 'Unisex', house: 'T', gender: 'unisex', priceTier: 1,
+              notes: null, accordTags: null, noteFamilies: null, seasonTags: null,
+              occasionTags: null, longevityScore: 5, sillageScore: 5, blindBuyScore: 50 },
+            { id: 'nogender', name: 'No Gender', house: 'T', priceTier: 1,
+              notes: null, accordTags: null, noteFamilies: null, seasonTags: null,
+              occasionTags: null, longevityScore: 5, sillageScore: 5, blindBuyScore: 50 },
+        ];
+
+        test('masculine filter includes men and unisex', () => {
+            const eng = new OlfactoryEngine(genderDb, {});
+            const state = { gender: 'masculine', budget: 4, performance: 50, occasions: [], climates: [] };
+            const results = eng.calculateRecommendationPool(state);
+            const ids = results.map(r => r.id);
+            expect(ids).toContain('mens');
+            expect(ids).toContain('uni');
+            expect(ids).not.toContain('womens');
+            expect(ids).toContain('nogender'); // null gender passes through
+        });
+
+        test('feminine filter includes women and unisex', () => {
+            const eng = new OlfactoryEngine(genderDb, {});
+            const state = { gender: 'feminine', budget: 4, performance: 50, occasions: [], climates: [] };
+            const results = eng.calculateRecommendationPool(state);
+            const ids = results.map(r => r.id);
+            expect(ids).toContain('womens');
+            expect(ids).toContain('uni');
+            expect(ids).not.toContain('mens');
+        });
+
+        test('unisex filter includes only unisex', () => {
+            const eng = new OlfactoryEngine(genderDb, {});
+            const state = { gender: 'unisex', budget: 4, performance: 50, occasions: [], climates: [] };
+            const results = eng.calculateRecommendationPool(state);
+            const ids = results.map(r => r.id);
+            expect(ids).toContain('uni');
+            expect(ids).not.toContain('mens');
+            expect(ids).not.toContain('womens');
+        });
+
+        test('no gender preference includes all', () => {
+            const eng = new OlfactoryEngine(genderDb, {});
+            const state = { gender: '', budget: 4, performance: 50, occasions: [], climates: [] };
+            const results = eng.calculateRecommendationPool(state);
+            expect(results.length).toBe(4);
         });
     });
 

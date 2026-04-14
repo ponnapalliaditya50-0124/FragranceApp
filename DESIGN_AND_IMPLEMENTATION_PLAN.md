@@ -1,10 +1,186 @@
-# Maison d'Aura — Implementation Plan for Parallel Agent Execution
+# Maison d'Aura — Implementation & Design System Plan
 
 ## Context
 
 Maison d'Aura is a fragrance recommendation platform with a vanilla JS frontend (SPA), Express/SQLite backend, and 24,063 classified fragrance records. The app currently uses a monolithic 3-step wizard (Favorites → Scent Profile → Usage Intent) with show/hide section navigation. This plan restructures it into distinct page-based workflows with hash routing, a full browse experience, and Amazon affiliate integration — executed by Claude Code agents in parallel.
 
 **Data is clean**: `fra_cleaned_w_b_rules.csv` (27 columns, semicolon-delimited, latin-1) is the authoritative source.
+
+---
+
+## Design System — Visual Standards
+
+All new pages, components, and CSS files **must** follow these specifications. The design system lives in `styles/style.css` `:root` and `body.appearance-light` blocks. Do not duplicate tokens — import or reference the existing file.
+
+### Color Architecture
+
+The palette uses **translucent glass minimalism** — no opaque surface colors. Every surface is a semi-transparent overlay on the gradient background.
+
+| Token | Dark Mode | Light Mode | Usage |
+|---|---|---|---|
+| `--clr-bg` | `#0b0b10` | `#f6f1ea` | Page gradient start |
+| `--clr-bg-secondary` | `#07080d` | `#e8dfd2` | Page gradient end |
+| `--clr-surface` | `rgba(255,255,255,0.04)` | `rgba(255,255,255,0.58)` | Default panel/card fill |
+| `--clr-surface-hover` | `rgba(255,255,255,0.07)` | `rgba(255,255,255,0.74)` | Hover state fill |
+| `--clr-surface-soft` | `rgba(255,255,255,0.03)` | `rgba(255,255,255,0.5)` | Subtle card fill |
+| `--clr-text-primary` | `rgba(255,255,255,0.92)` | `rgba(29,24,36,0.92)` | Headings, emphasis |
+| `--clr-text-secondary` | `rgba(255,255,255,0.45)` | `rgba(51,43,58,0.68)` | Body text, labels |
+| `--clr-text-tertiary` | `rgba(255,255,255,0.28)` | `rgba(79,69,87,0.44)` | Captions, hints |
+| `--clr-gold` | `#e0b85d` | `#b8922e` | Medium confidence, accents |
+| `--clr-success` | `#60c080` | — | Positive states |
+| `--clr-danger` | `#e06060` | — | Destructive/negative states |
+
+**Rule**: Never hardcode colors. Always reference `var(--clr-*)`. Both dark and light themes derive from the same token names.
+
+### Typography
+
+| Token | Value | Usage |
+|---|---|---|
+| `--font-heading` | `'Playfair Display', serif` | Section titles, archetype names, fragrance names |
+| `--font-body` | `'Inter', sans-serif` | Everything else, weight 300 default |
+
+**Hierarchy** (current canonical sizes — do not invent new ones):
+- Hero: `2.6rem` heading font
+- Section title: `1.4rem` heading font
+- Card title: `1.05rem` body font, weight 400
+- Body: `0.85rem` body font, weight 300
+- Label/caption: `0.72-0.75rem`, uppercase, `letter-spacing: 1-2px`
+- Micro: `0.65-0.68rem`, uppercase, `letter-spacing: 1.5-2px`
+
+### Border Radius
+
+| Token | Value | Usage |
+|---|---|---|
+| `--radius-sm` | `8px` | Input fields, small cards, note pills |
+| `--radius-md` | `14px` | Medium cards, panels, dropdowns |
+| `--radius-lg` | `22px` | Large cards, interpretation items |
+| `--radius-pill` | `50px` | Pills, badges, toggles, buttons |
+
+**Rule**: Never hardcode border-radius. Always use `var(--radius-*)`.
+
+### Transitions
+
+| Token | Value | Usage |
+|---|---|---|
+| `--transition-snappy` | `0.15s cubic-bezier(0.2, 0, 0, 1)` | Hover color/border flips, micro-interactions |
+| `--transition-fast` | `0.2s ease` | Standard interactive elements (buttons, pills, cards, inputs) |
+| `--transition-smooth` | `0.4s cubic-bezier(0.25, 1, 0.5, 1)` | Modals, view transitions, large surface animations |
+
+**Rule**: Every interactive element must have a `transition` property using one of these tokens. Never use bare `0.3s` or `0.25s`.
+
+**Exceptions**: Ambient orb transitions (`1.5s`) and body theme transition (`0.45s`) may use literal values.
+
+### Blur (Glass-Morphism)
+
+| Token | Value | Usage |
+|---|---|---|
+| `--blur-subtle` | `blur(10px)` | Buttons, small overlays |
+| `--blur-standard` | `blur(20px)` | Cards, panels, dropdowns |
+| `--blur-heavy` | `blur(40px)` | Header, modal scrim, primary surfaces |
+
+Apply as `backdrop-filter: var(--blur-*); -webkit-backdrop-filter: var(--blur-*);`.
+
+### Shadows
+
+| Token | Value | Usage |
+|---|---|---|
+| `--shadow-card` | `0 8px 24px var(--clr-shadow-soft)` | Default card elevation |
+| `--shadow-card-hover` | `0 14px 32px var(--clr-shadow-medium)` | Card hover lift |
+| `--shadow-elevated` | `0 18px 48px var(--clr-shadow-strong)` | Modals, popovers |
+| `--shadow-focus-ring` | `0 0 0 2px var(--clr-border-focus), 0 0 12px var(--clr-highlight-glow)` | Focus-visible states |
+
+### Interaction States — Required for All Interactive Elements
+
+Every clickable/tappable element must implement:
+
+1. **`:hover`** — visual response (border brighten, background shift, or `translateY(-1px)` lift)
+2. **`:focus-visible`** — `outline: none; box-shadow: var(--shadow-focus-ring);`
+3. **`:active`** — `transform: scale(0.97)` for buttons, or subtle press feedback
+
+**Standard card hover pattern**:
+```css
+.my-card {
+    transition: transform var(--transition-fast), border-color var(--transition-fast), box-shadow var(--transition-fast);
+    cursor: pointer;
+}
+.my-card:hover {
+    transform: translateY(-2px);
+    border-color: var(--clr-border-focus);
+    box-shadow: var(--shadow-card-hover);
+}
+.my-card:focus-visible {
+    outline: none;
+    box-shadow: var(--shadow-focus-ring);
+}
+```
+
+**Standard pill hover pattern**:
+```css
+.my-pill {
+    transition: background var(--transition-snappy), border-color var(--transition-snappy), color var(--transition-snappy);
+}
+.my-pill:hover {
+    background: var(--clr-surface-hover);
+    border-color: var(--clr-border-strong);
+}
+```
+
+### Animations & Delight
+
+**Staggered card entrance** (for any card grid):
+```css
+animation: dossierFadeIn 0.5s ease both;
+/* JS: style="animation-delay: ${idx * 0.08}s" */
+```
+
+**Selection pop** (for toggleable pills):
+```css
+animation: pillSelect 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+```
+
+**Feedback pop** (for state-change buttons like love/pass):
+```css
+animation: feedbackPop 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+```
+
+**Modal entrance**: Content starts at `transform: translateY(20px) scale(0.97); opacity: 0` and transitions to `transform: translateY(0) scale(1); opacity: 1` using `--transition-smooth`.
+
+**Progress bar**: Has a glowing `::after` dot at the leading edge.
+
+**Results grid crossfade**: When re-rendering cards, add `.crossfading` class (opacity: 0), update DOM, then `requestAnimationFrame(() => grid.classList.remove('crossfading'))`.
+
+### Glass Panel Pattern
+
+The `.glass-panel` class is the primary surface component:
+```css
+.glass-panel {
+    background: var(--clr-surface);
+    border: 1px solid var(--clr-surface-border);
+    border-radius: var(--radius-md);
+    backdrop-filter: var(--blur-standard);
+    -webkit-backdrop-filter: var(--blur-standard);
+}
+```
+Use for all cards, panels, and content containers. Do not create new surface patterns.
+
+### Inline Style Prohibition
+
+**Never** use inline `style=` attributes in HTML or `element.style.*` in JS for:
+- Font sizes → use CSS classes
+- Visibility → use `.hidden` attribute or CSS class toggle
+- Display → use `.hidden` attribute
+- Opacity → use CSS class with `transition`
+
+**Allowed inline styles**: Genuinely dynamic values only (slider fill gradients, tooltip positioning, progress bar width, animation-delay per item index).
+
+### CSS File Convention for New Pages
+
+When creating new page CSS files (e.g., `styles/search.css`, `styles/detail.css`):
+- Import no tokens — reference `var(--*)` from the shared `:root`
+- Prefix classes with the page name (e.g., `.search-input`, `.browse-filter-pill`)
+- Follow the same interaction state patterns documented above
+- Ensure both dark and light themes work (test with `body.appearance-light`)
+- Match spacing to the existing rhythm: `0.5rem`, `0.75rem`, `1rem`, `1.5rem`, `2rem`, `2.5rem`
 
 ---
 
@@ -173,15 +349,17 @@ function buildAmazonUrl(name, house) {
 ```
 - Backend returns `amazonUrl` field in fragrance API responses
 
-**CSS** (add to styles/):
+**CSS** (add to `styles/style.css`):
 ```css
 .amazon-buy-btn {
   display: inline-flex; align-items: center; gap: 0.5rem;
-  padding: 0.6rem 1.2rem; border-radius: 8px;
+  padding: 0.6rem 1.2rem; border-radius: var(--radius-sm);
   background: #FF9900; color: #111; font-weight: 600;
-  text-decoration: none; transition: background 0.2s;
+  text-decoration: none; transition: background var(--transition-fast), transform var(--transition-fast);
 }
-.amazon-buy-btn:hover { background: #e68a00; }
+.amazon-buy-btn:hover { background: #e68a00; transform: translateY(-1px); }
+.amazon-buy-btn:active { transform: scale(0.97); }
+.amazon-buy-btn:focus-visible { outline: none; box-shadow: var(--shadow-focus-ring); }
 ```
 
 **Acceptance criteria**:
@@ -317,6 +495,17 @@ Agents in Phase 3 all touch `index.html` and `app.js`. To prevent conflicts:
 - **In app.js**: each agent adds a new initialization function (e.g., `initNotesPage()`, `initSearchPage()`) at the END of the file. Do NOT modify other agents' functions.
 - **In router.js**: each agent registers their own route handler. Route registrations are additive (no conflicts).
 - **CSS**: each agent creates a SEPARATE CSS file (e.g., `styles/notes.css`, `styles/search.css`)
+
+### DESIGN SYSTEM COMPLIANCE
+All Phase 3+ work **must** follow the Design System section above. Specifically:
+- Use only `var(--*)` tokens for colors, radii, transitions, blur, and shadows — never hardcode
+- Every interactive element must have `:hover`, `:focus-visible`, and `:active` states
+- Follow the documented card hover pattern, pill hover pattern, and animation conventions
+- No inline `style=` attributes except for genuinely dynamic values
+- Use `.glass-panel` for all surface containers
+- Apply staggered `dossierFadeIn` animation to card grids with `idx * 0.08s` delay
+- Apply `pillSelect` animation to toggleable pills on selection
+- Test both dark mode (`body.appearance-dark` / default `:root`) and light mode (`body.appearance-light`)
 
 ---
 

@@ -185,6 +185,11 @@
                         </div>
                     </div>
 
+                    <div id="gender-section" class="cascading-section">
+                        <h4 class="sub-heading mt-4">Gender</h4>
+                        <div class="selectable-grid" id="gender-grid"></div>
+                    </div>
+
                     <div id="occasion-section" class="cascading-section">
                         <h4 class="sub-heading mt-4">Occasion</h4>
                         <div class="selectable-grid" id="occasion-grid"></div>
@@ -199,8 +204,8 @@
                         <h4 class="sub-heading mt-4">Desired Performance</h4>
                         <div class="performance-wrapper mt-2">
                             <div class="perf-text-area">
-                                <span class="perf-label gold-text" id="perf-label" style="font-size: 1.4rem; font-family: var(--font-heading); margin: 0;">Moderate Trail</span>
-                                <span class="perf-desc" id="perf-desc" style="color: var(--clr-text-secondary); font-size: 0.8rem; font-weight: 300;">Noticeable, balanced sillage that leaves a gentle trail.</span>
+                                <span class="perf-label gold-text" id="perf-label">Moderate Trail</span>
+                                <span class="perf-desc" id="perf-desc">Noticeable, balanced sillage that leaves a gentle trail.</span>
                             </div>
                             <div class="slider-container">
                                 <input type="range" id="perf-slider" min="0" max="100" value="50" class="gold-slider">
@@ -214,7 +219,7 @@
 
                     <div id="budget-section" class="cascading-section">
                         <h4 class="sub-heading mt-4">Investment Tier</h4>
-                        <p class="subtitle" style="font-size: 0.8rem; margin-top:0.2rem; margin-bottom: 1rem;">Select your price comfort zone.</p>
+                        <p class="subtitle budget-subtitle">Select your price comfort zone.</p>
                         <div class="budget-selector" id="budget-grid">
                             <div class="budget-pill" data-val="1">
                                 <span class="tier">$</span>
@@ -234,7 +239,7 @@
 
                 <!-- Wizard Controls -->
                 <div class="wizard-controls">
-                    <button class="btn-ghost" id="btn-prev" style="visibility: hidden;">Back</button>
+                    <button class="btn-ghost" id="btn-prev" hidden>Back</button>
                     <button class="btn-primary" id="btn-next">Next Step</button>
                 </div>
             </div>
@@ -269,6 +274,7 @@
                 </div>
 
                 <div id="results-refine-row" class="results-refine-row"></div>
+                <div id="results-refine-sliders"></div>
                 <p id="results-refine-note" class="results-refine-note"></p>
                 <div id="results-guest-collection" class="results-guest-collection"></div>
                 <div id="results-compare-tray" class="results-compare-tray" hidden></div>
@@ -290,7 +296,7 @@
                 <!-- JS Populated Cards go here -->
             </div>
             
-            <div style="text-align: center; margin-top: 3rem;">
+            <div class="results-restart-wrapper">
                 <button class="btn-primary" id="btn-restart" type="button">Start Over</button>
             </div>
         </section>
@@ -423,21 +429,21 @@
                 <div class="input-block mt-3" id="auth-code-block">
                     <input type="text" id="auth-code" placeholder="6-digit code" inputmode="numeric" autocomplete="one-time-code">
                 </div>
-                <button type="submit" class="btn-primary mt-4" id="btn-auth-submit" style="width: 100%;">Create Account</button>
-                <p id="auth-error" class="auth-error-msg" style="display:none;"></p>
+                <button type="submit" class="btn-primary mt-4 auth-btn-full" id="btn-auth-submit">Create Account</button>
+                <p id="auth-error" class="auth-error-msg" hidden></p>
                 <p id="auth-helper" class="auth-helper-msg" hidden></p>
             </form>
 
             <div class="auth-actions mt-3">
-                <button class="btn-ghost" id="btn-auth-secondary" type="button" style="width: 100%;"></button>
-                <button class="btn-ghost" id="btn-auth-back" type="button" style="width: 100%;" hidden>Back</button>
+                <button class="btn-ghost auth-btn-full" id="btn-auth-secondary" type="button"></button>
+                <button class="btn-ghost auth-btn-full" id="btn-auth-back" type="button" hidden>Back</button>
             </div>
 
             <div class="auth-divider mt-3" id="auth-guest-divider">
                 <span>or</span>
             </div>
 
-            <button class="btn-ghost mt-3" id="btn-auth-guest" type="button" style="width: 100%;">Continue as Guest</button>
+            <button class="btn-ghost mt-3 auth-btn-full" id="btn-auth-guest" type="button">Continue as Guest</button>
         </div>
     </div>
 
