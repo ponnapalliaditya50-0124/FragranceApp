@@ -105,8 +105,27 @@ const authState = {
 };
 
 const appearanceState = {
-    mode: 'dark'
+    mode: 'dark',
+    colorSchemeOverride: null
 };
+
+const COLOR_SCHEMES = [
+    { slug: 'the-dark-romantic',     label: 'Dark Romantic',     archetype: 'The Dark Romantic',     swatchA: '#d64868', swatchB: '#4d0411' },
+    { slug: 'the-confident-leader',  label: 'Confident Leader',  archetype: 'The Confident Leader',  swatchA: '#467bf5', swatchB: '#0933a0' },
+    { slug: 'the-provocateur',       label: 'Provocateur',       archetype: 'The Provocateur',       swatchA: '#ec5050', swatchB: '#991130' },
+    { slug: 'the-free-spirit',       label: 'Free Spirit',       archetype: 'The Free Spirit',       swatchA: '#4cc46c', swatchB: '#22993c' },
+    { slug: 'the-bold-extrovert',    label: 'Bold Extrovert',    archetype: 'The Bold Extrovert',    swatchA: '#f7913e', swatchB: '#bb2299' },
+    { slug: 'the-modern-aesthete',   label: 'Modern Aesthete',   archetype: 'The Modern Aesthete',   swatchA: '#d6d6e1', swatchB: '#808088' },
+    { slug: 'the-easygoing-optimist',label: 'Easygoing Optimist',archetype: 'The Easygoing Optimist',swatchA: '#5bcce6', swatchB: '#44b3d9' },
+    { slug: 'the-enigmatic-allure',  label: 'Enigmatic Allure',  archetype: 'The Enigmatic Allure',  swatchA: '#e66fad', swatchB: '#aa33bb' }
+];
+const COLOR_SCHEME_SLUGS = COLOR_SCHEMES.map(s => s.slug);
+
+function normalizeColorSchemeSlug(value) {
+    if (!value) return null;
+    const slug = String(value).trim().toLowerCase();
+    return COLOR_SCHEME_SLUGS.includes(slug) ? slug : null;
+}
 
 const VIEW_IDS = ['wizard-view', 'loading-view', 'results-view', 'profile-view'];
 
@@ -221,6 +240,12 @@ function applyGuestExperiencePayload(payload = {}) {
     guestExperienceState.activeViewId = VIEW_IDS.includes(payload.activeViewId) && payload.activeViewId !== 'loading-view'
         ? payload.activeViewId
         : 'wizard-view';
+    if (!authState.isLoggedIn) {
+        appearanceState.colorSchemeOverride = normalizeColorSchemeSlug(payload.colorSchemeOverride);
+        if (payload.appearanceMode === 'light' || payload.appearanceMode === 'dark') {
+            appearanceState.mode = payload.appearanceMode;
+        }
+    }
 }
 
 function buildGuestExperiencePayload() {
@@ -234,7 +259,9 @@ function buildGuestExperiencePayload() {
         compareIds: [...guestExperienceState.compareIds],
         feedbackById: { ...guestExperienceState.feedbackById },
         currentStep,
-        activeViewId: viewState.activeViewId === 'loading-view' ? 'wizard-view' : viewState.activeViewId
+        activeViewId: viewState.activeViewId === 'loading-view' ? 'wizard-view' : viewState.activeViewId,
+        colorSchemeOverride: appearanceState.colorSchemeOverride,
+        appearanceMode: getAppearanceMode()
     };
 }
 
@@ -3445,12 +3472,21 @@ function getEffectiveThemeTitle() {
         : '';
 }
 
+function getActiveColorSchemeSlug() {
+    if (appearanceState.colorSchemeOverride) {
+        return appearanceState.colorSchemeOverride;
+    }
+    const archetypeClass = getThemeClass(getEffectiveThemeTitle());
+    return archetypeClass ? archetypeClass.replace(/^theme-/, '') : '';
+}
+
 function applyTheme() {
     Array.from(document.body.classList)
         .filter(className => className.startsWith('theme-') || className.startsWith('appearance-'))
         .forEach(className => document.body.classList.remove(className));
 
-    const themeClass = getThemeClass(getEffectiveThemeTitle());
+    const schemeSlug = getActiveColorSchemeSlug();
+    const themeClass = schemeSlug ? `theme-${schemeSlug}` : '';
     if (themeClass) {
         document.body.classList.add(themeClass);
     }
@@ -3458,6 +3494,7 @@ function applyTheme() {
     document.body.classList.add(getAppearanceClass());
     document.body.dataset.appearance = getAppearanceMode();
     document.body.dataset.theme = themeClass || '';
+    document.body.dataset.colorScheme = schemeSlug || '';
     updateAppearanceToggleUI();
 }
 
@@ -3465,6 +3502,74 @@ function createArchetypeFromTitle(title) {
     return isRecognizedArchetypeTitle(title)
         ? { title, description: ARCHETYPES[title] }
         : null;
+}
+
+function deriveArchetypeTitleFromResults(recommended, userState) {
+    const families = {};
+    const accords = {};
+    (Array.isArray(recommended) ? recommended : []).slice(0, 5).forEach(frag => {
+        (frag && frag.noteFamilies ? frag.noteFamilies : []).forEach(id => {
+            const key = String(id || '').toLowerCase();
+            if (key) families[key] = (families[key] || 0) + 1;
+        });
+        (frag && frag.accordTags ? frag.accordTags : []).forEach(accord => {
+            const key = String(accord || '').toLowerCase();
+            if (key) accords[key] = (accords[key] || 0) + 1;
+        });
+    });
+
+    const hasFam = key => (families[key] || 0) > 0;
+    const hasAcc = key => (accords[key] || 0) > 0;
+    const anyFam = keys => keys.some(hasFam);
+    const anyAcc = keys => keys.some(hasAcc);
+    const perf = Number(userState && userState.performance) || 0;
+    const occs = userState && Array.isArray(userState.occasions) ? userState.occasions : [];
+
+    const scores = {
+        "The Dark Romantic": 0,
+        "The Confident Leader": 0,
+        "The Provocateur": 0,
+        "The Free Spirit": 0,
+        "The Bold Extrovert": 0,
+        "The Modern Aesthete": 0,
+        "The Easygoing Optimist": 0,
+        "The Enigmatic Allure": 0
+    };
+
+    if (anyFam(['amber', 'spicy', 'woody'])) scores["The Dark Romantic"] += 3;
+    if (anyAcc(['oud', 'incense', 'smoky', 'resinous', 'balsamic'])) scores["The Dark Romantic"] += 2;
+    if (occs.includes('Intimate') || occs.includes('Date Night')) scores["The Dark Romantic"] += 2;
+
+    if (anyFam(['fresh', 'citrus'])) scores["The Confident Leader"] += 2;
+    if (anyAcc(['aromatic', 'fougere', 'fresh spicy', 'aquatic'])) scores["The Confident Leader"] += 2;
+    if (occs.includes('Office') || occs.includes('Formal/Event')) scores["The Confident Leader"] += 2;
+
+    if (anyFam(['animalic', 'leather'])) scores["The Provocateur"] += 4;
+    if (anyAcc(['animalic', 'leather', 'musky'])) scores["The Provocateur"] += 3;
+
+    if (anyAcc(['green', 'earthy', 'herbal', 'mossy'])) scores["The Free Spirit"] += 3;
+    if (hasFam('woody') && anyAcc(['green', 'earthy', 'herbal'])) scores["The Free Spirit"] += 2;
+    if (occs.includes('Vacation/Holiday') || occs.includes('Casual')) scores["The Free Spirit"] += 1;
+
+    if (perf >= 75) scores["The Bold Extrovert"] += 3;
+    if (anyAcc(['oud', 'amber']) && perf >= 60) scores["The Bold Extrovert"] += 2;
+    if (occs.includes('Clubbing')) scores["The Bold Extrovert"] += 2;
+
+    if (hasFam('floral') && anyAcc(['powdery', 'iris', 'aldehydic', 'metallic'])) scores["The Modern Aesthete"] += 3;
+    if (anyAcc(['aldehydic', 'metallic', 'iris', 'ozonic'])) scores["The Modern Aesthete"] += 2;
+
+    if (anyFam(['citrus', 'fresh'])) scores["The Easygoing Optimist"] += 2;
+    if (occs.includes('Everyday/Signature') || occs.includes('Casual') || occs.includes('Gym/Active')) scores["The Easygoing Optimist"] += 2;
+
+    if (hasFam('sweet')) scores["The Enigmatic Allure"] += 3;
+    if (anyAcc(['vanilla', 'sweet', 'gourmand', 'sugary', 'caramel', 'cherry'])) scores["The Enigmatic Allure"] += 3;
+
+    let bestTitle = null;
+    let bestScore = 0;
+    Object.entries(scores).forEach(([title, score]) => {
+        if (score > bestScore) { bestScore = score; bestTitle = title; }
+    });
+    return bestTitle;
 }
 
 function buildLatestProfileSnapshot() {
@@ -3541,6 +3646,7 @@ function applyAccountPayload(payload, { syncRuntimeFromAccount = false } = {}) {
     if (!sessionPayload.authenticated) {
         clearAuthenticatedSessionState();
         appearanceState.mode = 'dark';
+        appearanceState.colorSchemeOverride = null;
         return;
     }
 
@@ -3564,6 +3670,7 @@ function applyAccountPayload(payload, { syncRuntimeFromAccount = false } = {}) {
     authState.verificationEmail = '';
     authState.helperMessage = '';
     appearanceState.mode = sessionPayload.appearanceMode === 'light' ? 'light' : 'dark';
+    appearanceState.colorSchemeOverride = normalizeColorSchemeSlug(sessionPayload.colorScheme);
 
     if (syncRuntimeFromAccount) {
         restoreAccountExperience();
@@ -3605,6 +3712,7 @@ async function persistAuthState(options = {}) {
     try {
         const payload = await saveAccountState({
             appearanceMode: getAppearanceMode(),
+            colorScheme: appearanceState.colorSchemeOverride,
             personalityTitle: options.personalityTitle !== undefined
                 ? options.personalityTitle
                 : authState.personalityTitle,
@@ -4059,7 +4167,71 @@ function renderProfileView() {
         : (personalityTitle ? 'Reset Personality' : 'Discover Personality');
 
     populateProfileFilterControls(savedFragrances);
+    renderColorSchemePicker();
     renderProfileCollection(savedSummary);
+}
+
+function renderColorSchemePicker() {
+    const list = document.getElementById('profile-scheme-list');
+    if (!list) return;
+
+    const activeSlug = getActiveColorSchemeSlug();
+    const overrideSlug = appearanceState.colorSchemeOverride;
+    const archetypeSlug = getThemeClass(getEffectiveThemeTitle()).replace(/^theme-/, '') || '';
+
+    const rows = [];
+    rows.push(`
+        <button type="button" class="profile-scheme-row${!overrideSlug ? ' is-active' : ''}" data-scheme="">
+            <span class="profile-scheme-copy">
+                <span class="profile-scheme-name">Archetype Default</span>
+                <span class="profile-scheme-meta">${archetypeSlug ? 'Uses your fragrance personality palette' : 'No personality palette selected yet'}</span>
+            </span>
+            <span class="profile-scheme-status">${!overrideSlug ? 'Active' : 'Use'}</span>
+        </button>
+    `);
+    COLOR_SCHEMES.forEach(scheme => {
+        const isActive = overrideSlug === scheme.slug;
+        rows.push(`
+            <button type="button" class="profile-scheme-row${isActive ? ' is-active' : ''}" data-scheme="${scheme.slug}" style="--scheme-row-accent:${scheme.swatchA};">
+                <span class="profile-scheme-copy">
+                    <span class="profile-scheme-name">${scheme.label}</span>
+                    <span class="profile-scheme-meta">${scheme.archetype}</span>
+                </span>
+                <span class="profile-scheme-status">${isActive ? 'Active' : 'Use'}</span>
+            </button>
+        `);
+    });
+    list.innerHTML = rows.join('');
+
+    if (!list.__schemeBound) {
+        list.addEventListener('click', (event) => {
+            const row = event.target.closest('.profile-scheme-row');
+            if (!row) return;
+            const slug = row.dataset.scheme || null;
+            handleColorSchemeChange(slug);
+        });
+        list.__schemeBound = true;
+    }
+    // Mark active for dataset lookups/tests.
+    list.dataset.activeScheme = activeSlug || '';
+}
+
+function handleColorSchemeChange(slug) {
+    const normalized = normalizeColorSchemeSlug(slug);
+    if (appearanceState.colorSchemeOverride === normalized) return;
+    appearanceState.colorSchemeOverride = normalized;
+    applyTheme();
+
+    if (authState.isLoggedIn) {
+        void persistAuthState({
+            latestProfile: authState.latestProfile,
+            latestRecommendationIds: authState.latestRecommendationIds
+        });
+    } else {
+        persistGuestExperience({ immediate: true });
+    }
+
+    renderColorSchemePicker();
 }
 
 function updateAuthUI() {
@@ -4511,6 +4683,7 @@ function buildGuestMergePayload() {
 
     return {
         appearanceMode: getAppearanceMode(),
+        colorScheme: appearanceState.colorSchemeOverride,
         personalityTitle,
         latestProfile,
         latestRecommendationIds,
@@ -4961,7 +5134,13 @@ async function processResults() {
             return;
         }
 
-        const archetype = engine.determineArchetype(recommended);
+        let archetype = engine.determineArchetype(recommended);
+        if (!archetype || !isRecognizedArchetypeTitle(archetype.title)) {
+            const derivedTitle = deriveArchetypeTitleFromResults(recommended, state);
+            if (derivedTitle) {
+                archetype = { title: derivedTitle, description: ARCHETYPES[derivedTitle] };
+            }
+        }
         displayResults(archetype, recommended);
     } catch (error) {
         clearInterval(interval);

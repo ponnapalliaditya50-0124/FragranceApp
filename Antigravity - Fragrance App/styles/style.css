@@ -86,6 +86,11 @@
     --orb-1-color: rgba(100, 120, 180, 0.12);
     --orb-2-color: rgba(160, 130, 200, 0.08);
     --orb-3-color: rgba(80, 160, 170, 0.06);
+
+    /* Color Scheme Accent (archetype override target) */
+    --clr-scheme-accent: rgba(255, 255, 255, 0.5);
+    --clr-scheme-accent-strong: rgba(255, 255, 255, 0.75);
+    --clr-scheme-tint: rgba(255, 255, 255, 0.04);
 }
 
 body.appearance-light {
@@ -138,6 +143,9 @@ body.appearance-light {
     --clr-selected-shadow: rgba(29, 24, 36, 0.12);
     --clr-selected-inset: rgba(255, 255, 255, 0.56);
     --clr-gold: #b8922e;
+    --clr-scheme-accent: rgba(26, 22, 32, 0.55);
+    --clr-scheme-accent-strong: rgba(26, 22, 32, 0.8);
+    --clr-scheme-tint: rgba(26, 22, 32, 0.04);
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -2774,6 +2782,108 @@ body.appearance-light .appearance-toggle {
     }
 }
 
+/* ─── Profile Color Scheme Picker ─── */
+.profile-scheme-section {
+    margin-top: 1.2rem;
+    padding-top: 1.2rem;
+    border-top: 1px solid var(--clr-divider);
+    min-width: 0;
+}
+.profile-scheme-hint {
+    margin-top: 0.4rem;
+    font-size: 0.76rem;
+    color: var(--clr-text-tertiary);
+    line-height: 1.45;
+}
+.profile-scheme-list {
+    margin-top: 0.8rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.45rem;
+    min-width: 0;
+}
+.profile-scheme-row {
+    position: relative;
+    width: 100%;
+    min-width: 0;
+    min-height: 54px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.85rem;
+    padding: 0.72rem 0.78rem 0.72rem 0.9rem;
+    background: transparent;
+    border: 1px solid var(--clr-surface-border);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    color: var(--clr-text-secondary);
+    font-family: inherit;
+    text-align: left;
+    overflow: hidden;
+    transition: background var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast), transform var(--transition-fast);
+}
+.profile-scheme-row::before {
+    content: '';
+    position: absolute;
+    top: 0.65rem;
+    bottom: 0.65rem;
+    left: 0;
+    width: 3px;
+    border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+    background: var(--scheme-row-accent, var(--clr-scheme-accent));
+    opacity: 0.42;
+}
+.profile-scheme-row:hover,
+.profile-scheme-row:focus-visible {
+    background: var(--clr-surface-soft);
+    border-color: var(--clr-surface-border-hover);
+    color: var(--clr-text-primary);
+    outline: none;
+}
+.profile-scheme-row:hover {
+    transform: translateY(-1px);
+}
+.profile-scheme-row.is-active {
+    background: var(--clr-selected-fill);
+    border-color: var(--clr-selected-border);
+    color: var(--clr-text-primary);
+    box-shadow: inset 0 1px 0 var(--clr-selected-inset);
+}
+.profile-scheme-row.is-active::before {
+    opacity: 1;
+}
+.profile-scheme-copy {
+    display: flex;
+    flex-direction: column;
+    gap: 0.16rem;
+    min-width: 0;
+}
+.profile-scheme-name,
+.profile-scheme-meta {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.profile-scheme-name {
+    color: var(--clr-text-primary);
+    font-size: 0.82rem;
+    font-weight: 600;
+}
+.profile-scheme-meta {
+    color: var(--clr-text-tertiary);
+    font-size: 0.68rem;
+}
+.profile-scheme-status {
+    flex: 0 0 auto;
+    color: var(--clr-text-tertiary);
+    font-size: 0.66rem;
+    text-transform: uppercase;
+}
+.profile-scheme-row.is-active .profile-scheme-status {
+    color: var(--clr-text-primary);
+}
+
 /* ─── Archetype Themes ─── */
 body.theme-the-dark-romantic {
     --orb-1-color: rgba(187, 17, 43, 0.21);
@@ -2783,6 +2893,13 @@ body.theme-the-dark-romantic {
     --clr-highlight-strong: rgba(214, 72, 104, 0.4);
     --clr-highlight-soft: rgba(187, 17, 43, 0.13);
     --clr-highlight-glow: rgba(214, 72, 104, 0.2);
+    --clr-scheme-accent: rgba(214, 72, 104, 0.55);
+    --clr-scheme-accent-strong: rgba(214, 72, 104, 0.85);
+    --clr-scheme-tint: rgba(187, 17, 43, 0.09);
+    --clr-border-focus: rgba(214, 72, 104, 0.45);
+    --clr-border-focus-strong: rgba(214, 72, 104, 0.6);
+    --clr-surface-border: rgba(214, 72, 104, 0.15);
+    --clr-surface-border-hover: rgba(214, 72, 104, 0.24);
 }
 body.theme-the-confident-leader {
     --orb-1-color: rgba(17, 68, 187, 0.21);
@@ -2792,6 +2909,13 @@ body.theme-the-confident-leader {
     --clr-highlight-strong: rgba(70, 123, 245, 0.4);
     --clr-highlight-soft: rgba(17, 68, 187, 0.13);
     --clr-highlight-glow: rgba(70, 123, 245, 0.2);
+    --clr-scheme-accent: rgba(70, 123, 245, 0.55);
+    --clr-scheme-accent-strong: rgba(70, 123, 245, 0.85);
+    --clr-scheme-tint: rgba(17, 68, 187, 0.09);
+    --clr-border-focus: rgba(70, 123, 245, 0.45);
+    --clr-border-focus-strong: rgba(70, 123, 245, 0.6);
+    --clr-surface-border: rgba(70, 123, 245, 0.15);
+    --clr-surface-border-hover: rgba(70, 123, 245, 0.24);
 }
 body.theme-the-provocateur {
     --orb-1-color: rgba(204, 17, 17, 0.21);
@@ -2801,6 +2925,13 @@ body.theme-the-provocateur {
     --clr-highlight-strong: rgba(236, 80, 80, 0.4);
     --clr-highlight-soft: rgba(204, 17, 17, 0.13);
     --clr-highlight-glow: rgba(236, 80, 80, 0.2);
+    --clr-scheme-accent: rgba(236, 80, 80, 0.55);
+    --clr-scheme-accent-strong: rgba(236, 80, 80, 0.85);
+    --clr-scheme-tint: rgba(204, 17, 17, 0.09);
+    --clr-border-focus: rgba(236, 80, 80, 0.45);
+    --clr-border-focus-strong: rgba(236, 80, 80, 0.6);
+    --clr-surface-border: rgba(236, 80, 80, 0.15);
+    --clr-surface-border-hover: rgba(236, 80, 80, 0.24);
 }
 body.theme-the-free-spirit {
     --orb-1-color: rgba(34, 153, 60, 0.21);
@@ -2810,6 +2941,13 @@ body.theme-the-free-spirit {
     --clr-highlight-strong: rgba(76, 196, 108, 0.38);
     --clr-highlight-soft: rgba(34, 153, 60, 0.13);
     --clr-highlight-glow: rgba(76, 196, 108, 0.18);
+    --clr-scheme-accent: rgba(76, 196, 108, 0.55);
+    --clr-scheme-accent-strong: rgba(76, 196, 108, 0.85);
+    --clr-scheme-tint: rgba(34, 153, 60, 0.09);
+    --clr-border-focus: rgba(76, 196, 108, 0.45);
+    --clr-border-focus-strong: rgba(76, 196, 108, 0.6);
+    --clr-surface-border: rgba(76, 196, 108, 0.15);
+    --clr-surface-border-hover: rgba(76, 196, 108, 0.24);
 }
 body.theme-the-bold-extrovert {
     --orb-1-color: rgba(217, 102, 9, 0.21);
@@ -2819,6 +2957,13 @@ body.theme-the-bold-extrovert {
     --clr-highlight-strong: rgba(247, 145, 62, 0.4);
     --clr-highlight-soft: rgba(217, 102, 9, 0.13);
     --clr-highlight-glow: rgba(247, 145, 62, 0.2);
+    --clr-scheme-accent: rgba(247, 145, 62, 0.55);
+    --clr-scheme-accent-strong: rgba(247, 145, 62, 0.85);
+    --clr-scheme-tint: rgba(217, 102, 9, 0.09);
+    --clr-border-focus: rgba(247, 145, 62, 0.45);
+    --clr-border-focus-strong: rgba(247, 145, 62, 0.6);
+    --clr-surface-border: rgba(247, 145, 62, 0.15);
+    --clr-surface-border-hover: rgba(247, 145, 62, 0.24);
 }
 body.theme-the-modern-aesthete {
     --orb-1-color: rgba(204, 204, 204, 0.13);
@@ -2828,6 +2973,13 @@ body.theme-the-modern-aesthete {
     --clr-highlight-strong: rgba(214, 214, 225, 0.3);
     --clr-highlight-soft: rgba(204, 204, 204, 0.1);
     --clr-highlight-glow: rgba(214, 214, 225, 0.14);
+    --clr-scheme-accent: rgba(214, 214, 225, 0.55);
+    --clr-scheme-accent-strong: rgba(214, 214, 225, 0.85);
+    --clr-scheme-tint: rgba(150, 150, 165, 0.08);
+    --clr-border-focus: rgba(214, 214, 225, 0.38);
+    --clr-border-focus-strong: rgba(214, 214, 225, 0.5);
+    --clr-surface-border: rgba(214, 214, 225, 0.14);
+    --clr-surface-border-hover: rgba(214, 214, 225, 0.22);
 }
 body.theme-the-easygoing-optimist {
     --orb-1-color: rgba(68, 179, 217, 0.21);
@@ -2837,6 +2989,13 @@ body.theme-the-easygoing-optimist {
     --clr-highlight-strong: rgba(91, 204, 230, 0.38);
     --clr-highlight-soft: rgba(68, 179, 217, 0.13);
     --clr-highlight-glow: rgba(91, 204, 230, 0.18);
+    --clr-scheme-accent: rgba(91, 204, 230, 0.55);
+    --clr-scheme-accent-strong: rgba(91, 204, 230, 0.85);
+    --clr-scheme-tint: rgba(68, 179, 217, 0.09);
+    --clr-border-focus: rgba(91, 204, 230, 0.45);
+    --clr-border-focus-strong: rgba(91, 204, 230, 0.6);
+    --clr-surface-border: rgba(91, 204, 230, 0.15);
+    --clr-surface-border-hover: rgba(91, 204, 230, 0.24);
 }
 body.theme-the-enigmatic-allure {
     --orb-1-color: rgba(217, 68, 136, 0.21);
@@ -2846,6 +3005,13 @@ body.theme-the-enigmatic-allure {
     --clr-highlight-strong: rgba(230, 111, 173, 0.38);
     --clr-highlight-soft: rgba(217, 68, 136, 0.13);
     --clr-highlight-glow: rgba(230, 111, 173, 0.2);
+    --clr-scheme-accent: rgba(230, 111, 173, 0.55);
+    --clr-scheme-accent-strong: rgba(230, 111, 173, 0.85);
+    --clr-scheme-tint: rgba(170, 51, 187, 0.09);
+    --clr-border-focus: rgba(230, 111, 173, 0.45);
+    --clr-border-focus-strong: rgba(230, 111, 173, 0.6);
+    --clr-surface-border: rgba(230, 111, 173, 0.15);
+    --clr-surface-border-hover: rgba(230, 111, 173, 0.24);
 }
 
 /* Background gradients stay mode-specific while personality accents remain fixed. */
