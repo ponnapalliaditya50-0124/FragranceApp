@@ -117,9 +117,27 @@ const COLOR_SCHEMES = [
     { slug: 'the-bold-extrovert',    label: 'Bold Extrovert',    archetype: 'The Bold Extrovert',    swatchA: '#f7913e', swatchB: '#bb2299' },
     { slug: 'the-modern-aesthete',   label: 'Modern Aesthete',   archetype: 'The Modern Aesthete',   swatchA: '#d6d6e1', swatchB: '#808088' },
     { slug: 'the-easygoing-optimist',label: 'Easygoing Optimist',archetype: 'The Easygoing Optimist',swatchA: '#5bcce6', swatchB: '#44b3d9' },
-    { slug: 'the-enigmatic-allure',  label: 'Enigmatic Allure',  archetype: 'The Enigmatic Allure',  swatchA: '#e66fad', swatchB: '#aa33bb' }
+    { slug: 'the-enigmatic-allure',  label: 'Enigmatic Allure',  archetype: 'The Enigmatic Allure',  swatchA: '#e66fad', swatchB: '#aa33bb' },
+    { title: 'The Coastal Minimalist', label: 'Coastal Minimalist', slug: 'the-coastal-minimalist', archetype: 'The Coastal Minimalist', swatchA: '#89C3C8', swatchB: '#486772' },
+    { title: 'The Refined Wanderer', label: 'Refined Wanderer', slug: 'the-refined-wanderer', archetype: 'The Refined Wanderer', swatchA: '#88945C', swatchB: '#3F4A34' },
+    { title: 'The Solar Muse', label: 'Solar Muse', slug: 'the-solar-muse', archetype: 'The Solar Muse', swatchA: '#F4C76E', swatchB: '#5EC4BF' },
+    { title: 'The Velvet Connoisseur', label: 'Velvet Connoisseur', slug: 'the-velvet-connoisseur', archetype: 'The Velvet Connoisseur', swatchA: '#B97A4B', swatchB: '#3A241A' }
 ];
 const COLOR_SCHEME_SLUGS = COLOR_SCHEMES.map(s => s.slug);
+const ARCHETYPE_THEME_SLUGS = {
+    'The Dark Romantic': 'the-dark-romantic',
+    'The Confident Leader': 'the-confident-leader',
+    'The Provocateur': 'the-provocateur',
+    'The Free Spirit': 'the-free-spirit',
+    'The Bold Extrovert': 'the-bold-extrovert',
+    'The Modern Aesthete': 'the-modern-aesthete',
+    'The Easygoing Optimist': 'the-easygoing-optimist',
+    'The Enigmatic Allure': 'the-enigmatic-allure',
+    'The Coastal Minimalist': 'the-coastal-minimalist',
+    'The Refined Wanderer': 'the-refined-wanderer',
+    'The Solar Muse': 'the-solar-muse',
+    'The Velvet Connoisseur': 'the-velvet-connoisseur'
+};
 
 function normalizeColorSchemeSlug(value) {
     if (!value) return null;
@@ -3429,9 +3447,9 @@ function setActiveView(viewId) {
 }
 
 function getThemeClass(archetypeTitle) {
-    return archetypeTitle
-        ? `theme-${archetypeTitle.toLowerCase().replace(/\s+/g, '-')}`
-        : '';
+    const schemeSlug = ARCHETYPE_THEME_SLUGS[archetypeTitle]
+        || (archetypeTitle ? archetypeTitle.toLowerCase().replace(/\s+/g, '-') : '');
+    return schemeSlug ? `theme-${schemeSlug}` : '';
 }
 
 function getAppearanceMode() {
@@ -3504,7 +3522,7 @@ function createArchetypeFromTitle(title) {
         : null;
 }
 
-function deriveArchetypeTitleFromResults(recommended, userState) {
+function buildArchetypeSignals(recommended, userState) {
     const families = {};
     const accords = {};
     (Array.isArray(recommended) ? recommended : []).slice(0, 5).forEach(frag => {
@@ -3524,6 +3542,28 @@ function deriveArchetypeTitleFromResults(recommended, userState) {
     const anyAcc = keys => keys.some(hasAcc);
     const perf = Number(userState && userState.performance) || 0;
     const occs = userState && Array.isArray(userState.occasions) ? userState.occasions : [];
+
+    return {
+        families,
+        accords,
+        perf,
+        occs,
+        hasFam,
+        hasAcc,
+        anyFam,
+        anyAcc,
+        coastalPrimary: anyAcc(['marine', 'salty', 'mineral']),
+        coastalSecondary: anyAcc(['ozonic', 'aquatic', 'fresh', 'citrus', 'aromatic']),
+        wandererGreenSignal: anyAcc(['green', 'earthy', 'herbal', 'mossy']),
+        wandererFreshSignal: anyAcc(['citrus', 'aromatic', 'fresh spicy']),
+        solarPrimary: anyAcc(['tropical', 'coconut', 'lactonic', 'yellow floral', 'solar']),
+        velvetPrimary: anyAcc(['tobacco', 'rum', 'whiskey', 'coffee', 'cacao', 'honey', 'boozy']),
+        velvetWarmBase: anyAcc(['warm spicy', 'amber', 'vanilla', 'sweet']) && anyFam(['woody', 'spicy'])
+    };
+}
+
+function buildLegacyArchetypeScores(signals) {
+    const { anyFam, anyAcc, hasFam, occs, perf } = signals;
 
     const scores = {
         "The Dark Romantic": 0,
@@ -3564,12 +3604,138 @@ function deriveArchetypeTitleFromResults(recommended, userState) {
     if (hasFam('sweet')) scores["The Enigmatic Allure"] += 3;
     if (anyAcc(['vanilla', 'sweet', 'gourmand', 'sugary', 'caramel', 'cherry'])) scores["The Enigmatic Allure"] += 3;
 
+    return scores;
+}
+
+function buildExpandedArchetypeScores(signals) {
+    const { anyFam, anyAcc, occs, perf, coastalPrimary, coastalSecondary, wandererGreenSignal, wandererFreshSignal, solarPrimary, velvetPrimary, velvetWarmBase } = signals;
+    const scores = {
+        "The Coastal Minimalist": 0,
+        "The Refined Wanderer": 0,
+        "The Solar Muse": 0,
+        "The Velvet Connoisseur": 0
+    };
+
+    if (coastalPrimary) scores["The Coastal Minimalist"] += 4;
+    if (coastalSecondary) scores["The Coastal Minimalist"] += 2;
+    if (occs.includes('Office') || occs.includes('Everyday/Signature')) scores["The Coastal Minimalist"] += 1;
+    if (perf <= 55) scores["The Coastal Minimalist"] += 1;
+
+    if (wandererGreenSignal && wandererFreshSignal) scores["The Refined Wanderer"] += 3;
+    if (anyFam(['woody'])) scores["The Refined Wanderer"] += 2;
+    if (occs.includes('Office') || occs.includes('Casual') || occs.includes('Vacation/Holiday')) scores["The Refined Wanderer"] += 1;
+    if (perf >= 45 && perf <= 70) scores["The Refined Wanderer"] += 1;
+
+    if (solarPrimary) scores["The Solar Muse"] += 4;
+    if (anyFam(['fruity', 'citrus', 'floral'])) scores["The Solar Muse"] += 2;
+    if (occs.includes('Casual') || occs.includes('Vacation/Holiday')) scores["The Solar Muse"] += 1;
+    if (perf <= 60) scores["The Solar Muse"] += 1;
+
+    if (velvetPrimary) scores["The Velvet Connoisseur"] += 4;
+    if (velvetWarmBase) scores["The Velvet Connoisseur"] += 2;
+    if (occs.includes('Date Night') || occs.includes('Formal/Event')) scores["The Velvet Connoisseur"] += 2;
+    if (perf >= 60) scores["The Velvet Connoisseur"] += 1;
+
+    return scores;
+}
+
+function getLegacyWinner(scores) {
     let bestTitle = null;
     let bestScore = 0;
+
     Object.entries(scores).forEach(([title, score]) => {
-        if (score > bestScore) { bestScore = score; bestTitle = title; }
+        if (score > bestScore) {
+            bestScore = score;
+            bestTitle = title;
+        }
     });
-    return bestTitle;
+
+    return {
+        title: bestTitle,
+        score: bestScore
+    };
+}
+
+function getExpandedWinner(scores) {
+    let bestTitle = null;
+    let bestScore = 0;
+    let tiedTitles = [];
+
+    Object.entries(scores).forEach(([title, score]) => {
+        if (score > bestScore) {
+            bestScore = score;
+            bestTitle = title;
+            tiedTitles = [title];
+            return;
+        }
+
+        if (score === bestScore && score > 0) {
+            tiedTitles.push(title);
+        }
+    });
+
+    return {
+        title: bestTitle,
+        score: bestScore,
+        hasTie: tiedTitles.length > 1
+    };
+}
+
+function profilePassedGate(title, signals) {
+    if (title === 'The Coastal Minimalist') {
+        return signals.coastalPrimary;
+    }
+
+    if (title === 'The Refined Wanderer') {
+        return signals.anyFam(['woody']) && signals.wandererGreenSignal && signals.wandererFreshSignal;
+    }
+
+    if (title === 'The Solar Muse') {
+        return signals.solarPrimary;
+    }
+
+    if (title === 'The Velvet Connoisseur') {
+        return signals.velvetPrimary && signals.velvetWarmBase;
+    }
+
+    return false;
+}
+
+function chooseArchetypeTitle({ sourceBackedTitle, legacyScores, expandedScores, signals, userState }) {
+    void userState;
+
+    if (isRecognizedArchetypeTitle(sourceBackedTitle)) {
+        return sourceBackedTitle;
+    }
+
+    const legacyWinner = getLegacyWinner(legacyScores);
+    const expandedWinner = getExpandedWinner(expandedScores);
+
+    if (
+        expandedWinner.title
+        && !expandedWinner.hasTie
+        && profilePassedGate(expandedWinner.title, signals)
+        && expandedWinner.score >= 6
+        && expandedWinner.score >= legacyWinner.score + 2
+    ) {
+        return expandedWinner.title;
+    }
+
+    return legacyWinner.title;
+}
+
+function deriveArchetypeTitleFromResults(recommended, userState, sourceBackedTitle = '') {
+    const signals = buildArchetypeSignals(recommended, userState);
+    const legacyScores = buildLegacyArchetypeScores(signals);
+    const expandedScores = buildExpandedArchetypeScores(signals);
+
+    return chooseArchetypeTitle({
+        sourceBackedTitle,
+        legacyScores,
+        expandedScores,
+        signals,
+        userState
+    });
 }
 
 function buildLatestProfileSnapshot() {
@@ -5136,7 +5302,7 @@ async function processResults() {
 
         let archetype = engine.determineArchetype(recommended);
         if (!archetype || !isRecognizedArchetypeTitle(archetype.title)) {
-            const derivedTitle = deriveArchetypeTitleFromResults(recommended, state);
+            const derivedTitle = deriveArchetypeTitleFromResults(recommended, state, archetype && archetype.title);
             if (derivedTitle) {
                 archetype = { title: derivedTitle, description: ARCHETYPES[derivedTitle] };
             }

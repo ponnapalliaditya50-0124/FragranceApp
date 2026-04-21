@@ -3013,6 +3013,70 @@ body.theme-the-enigmatic-allure {
     --clr-surface-border: rgba(230, 111, 173, 0.15);
     --clr-surface-border-hover: rgba(230, 111, 173, 0.24);
 }
+body.theme-the-coastal-minimalist {
+    --orb-1-color: #A9DDE0;
+    --orb-2-color: #6C919A;
+    --orb-3-color: #E5F2F2;
+    --clr-highlight: #8FCFD1;
+    --clr-highlight-strong: #4F7883;
+    --clr-highlight-soft: rgba(143, 207, 209, 0.18);
+    --clr-highlight-glow: rgba(143, 207, 209, 0.28);
+    --clr-scheme-accent: #76AFB6;
+    --clr-scheme-accent-strong: #3E6170;
+    --clr-scheme-tint: #E7F3F3;
+    --clr-border-focus: #7BB7BC;
+    --clr-border-focus-strong: #4C6E77;
+    --clr-surface-border: rgba(122, 171, 177, 0.28);
+    --clr-surface-border-hover: rgba(122, 171, 177, 0.42);
+}
+body.theme-the-refined-wanderer {
+    --orb-1-color: #A9B780;
+    --orb-2-color: #69744A;
+    --orb-3-color: #E5E1CD;
+    --clr-highlight: #95A46A;
+    --clr-highlight-strong: #55603A;
+    --clr-highlight-soft: rgba(149, 164, 106, 0.18);
+    --clr-highlight-glow: rgba(149, 164, 106, 0.28);
+    --clr-scheme-accent: #A79261;
+    --clr-scheme-accent-strong: #6C5A34;
+    --clr-scheme-tint: #F0ECE0;
+    --clr-border-focus: #9EAE78;
+    --clr-border-focus-strong: #5B6840;
+    --clr-surface-border: rgba(150, 138, 96, 0.26);
+    --clr-surface-border-hover: rgba(150, 138, 96, 0.40);
+}
+body.theme-the-solar-muse {
+    --orb-1-color: #FFD98B;
+    --orb-2-color: #7DD6D0;
+    --orb-3-color: #FFF3D8;
+    --clr-highlight: #F0B45C;
+    --clr-highlight-strong: #D58A45;
+    --clr-highlight-soft: rgba(240, 180, 92, 0.18);
+    --clr-highlight-glow: rgba(240, 180, 92, 0.28);
+    --clr-scheme-accent: #52B7C3;
+    --clr-scheme-accent-strong: #2D7F8D;
+    --clr-scheme-tint: #FFF5E4;
+    --clr-border-focus: #F1BE67;
+    --clr-border-focus-strong: #D1934E;
+    --clr-surface-border: rgba(222, 190, 123, 0.28);
+    --clr-surface-border-hover: rgba(222, 190, 123, 0.42);
+}
+body.theme-the-velvet-connoisseur {
+    --orb-1-color: #D19A62;
+    --orb-2-color: #6B452F;
+    --orb-3-color: #F4E4CF;
+    --clr-highlight: #C68A56;
+    --clr-highlight-strong: #7A4A2D;
+    --clr-highlight-soft: rgba(198, 138, 86, 0.18);
+    --clr-highlight-glow: rgba(198, 138, 86, 0.28);
+    --clr-scheme-accent: #D8B06A;
+    --clr-scheme-accent-strong: #8F6231;
+    --clr-scheme-tint: #F7EBDD;
+    --clr-border-focus: #C89259;
+    --clr-border-focus-strong: #815132;
+    --clr-surface-border: rgba(179, 128, 79, 0.28);
+    --clr-surface-border-hover: rgba(179, 128, 79, 0.42);
+}
 
 /* Background gradients stay mode-specific while personality accents remain fixed. */
 body.theme-the-dark-romantic.appearance-dark {
