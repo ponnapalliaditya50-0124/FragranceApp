@@ -22,7 +22,7 @@ describe('Fragrance data contract', () => {
             sillage: 'Strong',
             sillageScore: 7,
             blindBuyScore: 80,
-            climate: 'Temperate',
+            climate: 'Mild Everyday',
             notes: { top: ['Bergamot'], heart: ['Rose'], base: ['Cedar'] },
             accordTags: ['woody', 'floral'],
             noteFamilies: ['woody', 'floral'],

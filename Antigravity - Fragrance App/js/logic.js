@@ -15,6 +15,39 @@ class OlfactoryEngine {
             .trim();
     }
 
+    getClimateSeasonMappings() {
+        return {
+            "Hot & Humid": ["Summer"],
+            "Dry Heat": ["Summer", "Fall"],
+            "Breezy Coastal": ["Spring", "Summer"],
+            "Tropical": ["Summer"],
+            "Mild Everyday": ["Spring", "Fall"],
+            "Rainy & Overcast": ["Spring", "Fall"],
+            "Cool Air": ["Fall", "Winter"],
+            "Cold & Snowy": ["Winter"]
+        };
+    }
+
+    getGenderPreferenceAdjustment(preference, fragranceGender) {
+        const normalizedPreference = String(preference || '').trim().toLowerCase();
+        const normalizedGender = String(fragranceGender || '').trim().toLowerCase();
+
+        const preferenceWeights = {
+            'feminine': { women: 18, unisex: 10, men: -10 },
+            'soft feminine': { women: 11, unisex: 6, men: -4 },
+            'balanced': { women: 4, unisex: 7, men: 4 },
+            'soft masculine': { men: 11, unisex: 6, women: -4 },
+            'masculine': { men: 18, unisex: 10, women: -10 }
+        };
+
+        const weights = preferenceWeights[normalizedPreference];
+        if (!weights) {
+            return 0;
+        }
+
+        return weights[normalizedGender] || 0;
+    }
+
     // Extract scent-related keywords from free-text descriptions
     extractKeywords(text) {
         const scentKeywords = [
@@ -119,6 +152,7 @@ class OlfactoryEngine {
         const targetBudget = parseInt(userState.budget);
         const hasBudgetFilter = Number.isFinite(targetBudget);
         const genderPref = userState.gender || '';
+        const climateMappings = this.getClimateSeasonMappings();
 
         const candidates = this.database.filter(fragrance => {
             // Exclude exact favorites — don't recommend what the user already owns
@@ -128,15 +162,6 @@ class OlfactoryEngine {
             // Budget hard filter: exclude fragrances above the budget tier
             if (hasBudgetFilter && Number.isInteger(fragrance.priceTier) && fragrance.priceTier > targetBudget) {
                 return false;
-            }
-            // Gender hard filter
-            if (genderPref) {
-                const fg = (fragrance.gender || '').toLowerCase();
-                if (fg) {
-                    if (genderPref === 'masculine' && fg !== 'men' && fg !== 'unisex') return false;
-                    if (genderPref === 'feminine' && fg !== 'women' && fg !== 'unisex') return false;
-                    if (genderPref === 'unisex' && fg !== 'unisex') return false;
-                }
             }
             return true;
         });
@@ -234,14 +259,6 @@ class OlfactoryEngine {
             });
 
             // 4. Climate Match (Bonus) - Map climates back to seasonTags
-            const climateMappings = {
-                "Hot & Humid": ["Summer"],
-                "Dry & Desert": ["Summer", "Fall"],
-                "Temperate": ["Spring", "Fall"],
-                "Cold & Crisp": ["Winter"],
-                "Tropical": ["Summer"]
-            };
-
             if (userState.climates) {
                 userState.climates.forEach(cli => {
                     const mappedSeasons = climateMappings[cli] || [];
@@ -256,6 +273,12 @@ class OlfactoryEngine {
                         matchLog.push(`+10: Climate match (All Year for ${cli})`);
                     }
                 });
+            }
+
+            const genderAdjustment = this.getGenderPreferenceAdjustment(genderPref, fragrance.gender);
+            if (genderAdjustment !== 0) {
+                score += genderAdjustment;
+                matchLog.push(`${genderAdjustment > 0 ? '+' : ''}${genderAdjustment}: Gender preference (${genderPref} -> ${fragrance.gender || 'unknown'})`);
             }
 
             // Usage Description (Keywords matching occasions or seasons)

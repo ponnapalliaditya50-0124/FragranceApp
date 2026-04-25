@@ -68,6 +68,130 @@ const INTERPRETATION_GROUP_LABELS = {
     climates: 'Climates'
 };
 
+const GENDER_SLIDER_OPTIONS = [
+    {
+        value: 'Feminine',
+        label: 'Feminine',
+        description: 'Pushes recommendations toward fragrances coded more feminine, while still letting standout unisex options through.'
+    },
+    {
+        value: 'Soft Feminine',
+        label: 'Soft Feminine',
+        description: 'A gentle feminine lean that still leaves plenty of room for versatile crossover scents.'
+    },
+    {
+        value: 'Balanced',
+        label: 'Balanced',
+        description: 'Centered between feminine and masculine scent profiles.'
+    },
+    {
+        value: 'Soft Masculine',
+        label: 'Soft Masculine',
+        description: 'A gentle masculine lean that still leaves room for smoother crossover fragrances.'
+    },
+    {
+        value: 'Masculine',
+        label: 'Masculine',
+        description: 'Pushes recommendations toward fragrances coded more masculine, while still keeping strong unisex options in play.'
+    }
+];
+
+const BUDGET_SLIDER_OPTIONS = [
+    {
+        value: 0,
+        label: 'Budget',
+        description: 'Focused on the most wallet-friendly tiers only.'
+    },
+    {
+        value: 1,
+        label: 'Affordable',
+        description: 'Accessible pricing with a bit more breathing room than strict budget picks.'
+    },
+    {
+        value: 2,
+        label: 'Mid-range',
+        description: 'A balanced lane between accessible staples and luxury splurges.'
+    },
+    {
+        value: 3,
+        label: 'Premium',
+        description: 'Higher-end options stay in play while the most expensive tiers remain capped.'
+    },
+    {
+        value: 4,
+        label: 'Luxury',
+        description: 'No price-tier cap beyond the full recommendation catalog.'
+    }
+];
+
+const LEGACY_CLIMATE_OPTION_MAP = {
+    'Hot & Humid': 'Hot & Humid',
+    'Dry & Desert': 'Dry Heat',
+    'Temperate': 'Mild Everyday',
+    'Cold & Crisp': 'Cold & Snowy',
+    'Tropical': 'Tropical'
+};
+
+function normalizeGenderPreference(value) {
+    const normalized = String(value || '').trim().toLowerCase();
+
+    switch (normalized) {
+        case 'feminine':
+            return 'Feminine';
+        case 'soft feminine':
+            return 'Soft Feminine';
+        case 'balanced':
+        case 'unisex':
+            return 'Balanced';
+        case 'soft masculine':
+            return 'Soft Masculine';
+        case 'masculine':
+            return 'Masculine';
+        default:
+            return '';
+    }
+}
+
+function getGenderSliderIndex(value) {
+    const normalizedValue = normalizeGenderPreference(value);
+    const matchIndex = GENDER_SLIDER_OPTIONS.findIndex(option => option.value === normalizedValue);
+    return matchIndex >= 0 ? matchIndex : 2;
+}
+
+function normalizeClimateSelections(values) {
+    if (!Array.isArray(values)) {
+        return [];
+    }
+
+    const allowedValues = new Set(CLIMATE_OPTIONS);
+
+    return [...new Set(
+        values
+            .map((value) => {
+                const label = String(value || '').trim();
+                return LEGACY_CLIMATE_OPTION_MAP[label] || label;
+            })
+            .filter(value => allowedValues.has(value))
+    )];
+}
+
+function normalizeBudgetPreference(value) {
+    const parsedValue = Number(value);
+    if (!Number.isFinite(parsedValue)) {
+        return 2;
+    }
+
+    return Math.min(4, Math.max(0, Math.round(parsedValue)));
+}
+
+function getBudgetSliderOption(value) {
+    return BUDGET_SLIDER_OPTIONS.find(option => option.value === normalizeBudgetPreference(value)) || BUDGET_SLIDER_OPTIONS[2];
+}
+
+function getBudgetPreferenceLabel(value) {
+    return getBudgetSliderOption(value).label;
+}
+
 // Application State & UI Controller
 const state = {
     favorites: [],
@@ -146,10 +270,17 @@ function normalizeColorSchemeSlug(value) {
 }
 
 const VIEW_IDS = ['wizard-view', 'loading-view', 'results-view', 'profile-view'];
+const NAV_DRAWER_MOBILE_BREAKPOINT = '(max-width: 900px)';
 
 const viewState = {
     activeViewId: 'wizard-view',
     previousViewId: 'wizard-view'
+};
+
+const navigationDrawerState = {
+    isMobile: false,
+    desktopOpen: true,
+    mobileOpen: false
 };
 
 const profileFilters = {
@@ -193,6 +324,7 @@ const resultsViewState = {
 };
 
 let guestPersistenceTimerId = 0;
+let navigationDrawerMediaQuery = null;
 
 let syncUsageIntentStepState = () => {};
 let clearUsageIntentStepTimers = () => {};
@@ -930,14 +1062,14 @@ function buildBudgetTakeaway(fragrance) {
     }
 
     if (fragrance.priceTier > state.budget) {
-        return `Runs above your ${formatPriceTier(state.budget)} target, but the scent profile kept it in the mix.`;
+        return `Runs above your current ${getBudgetPreferenceLabel(state.budget)} target, but the scent profile kept it in the mix.`;
     }
 
     if (fragrance.priceTier === state.budget) {
-        return `Right on your current ${formatPriceTier(state.budget)} budget target.`;
+        return `Right on your current ${getBudgetPreferenceLabel(state.budget)} budget target.`;
     }
 
-    return `Comes in under your current ${formatPriceTier(state.budget)} budget target.`;
+    return `Comes in under your current ${getBudgetPreferenceLabel(state.budget)} budget target.`;
 }
 
 function buildPerformanceTakeaway(fragrance) {
@@ -1392,6 +1524,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 
     runStartupStep('syncActiveView', syncActiveView);
     runStartupStep('initAuth', initAuth);
+    runStartupStep('initNavigationDrawer', initNavigationDrawer);
     runStartupStep('initWizard', initWizard);
     runStartupStep('initProfileView', initProfileView);
     runStartupStep('initFragranceDetailModal', ensureFragranceDetailModalBindings);
@@ -1625,17 +1758,6 @@ function initWizard() {
             groups: document.getElementById('scent-interpretation-groups'),
             applyButton: document.getElementById('btn-apply-scent-interpretation'),
             clearButton: document.getElementById('btn-clear-scent-interpretation')
-        },
-        usage: {
-            kind: 'usage',
-            stateKey: 'usageDescription',
-            textarea: document.getElementById('usage-description'),
-            panel: document.getElementById('usage-interpretation-panel'),
-            summary: document.getElementById('usage-interpretation-summary'),
-            status: document.getElementById('usage-interpretation-status'),
-            groups: document.getElementById('usage-interpretation-groups'),
-            applyButton: document.getElementById('btn-apply-usage-interpretation'),
-            clearButton: document.getElementById('btn-clear-usage-interpretation')
         }
     };
 
@@ -2576,7 +2698,6 @@ function initWizard() {
     });
 
     setupMicrophone({ btnId: 'btn-mic', statusId: 'mic-status', textareaId: 'scent-description', stateKey: 'scentDescription', kind: 'scent' });
-    setupMicrophone({ btnId: 'btn-mic-usage', statusId: 'mic-status-usage', textareaId: 'usage-description', stateKey: 'usageDescription', kind: 'usage' });
 
     // Zone B: Note Families Grid
     const familyGrid = document.getElementById('family-grid');
@@ -2584,6 +2705,10 @@ function initWizard() {
     const selectedNotesList = document.getElementById('selected-notes-list');
     const selectedNotesCount = document.getElementById('selected-notes-count');
     const selectedNotesEmpty = document.getElementById('selected-notes-empty');
+    const selectedAccordsTray = document.getElementById('selected-accords-tray');
+    const selectedAccordsList = document.getElementById('selected-accords-list');
+    const selectedAccordsCount = document.getElementById('selected-accords-count');
+    const selectedAccordsEmpty = document.getElementById('selected-accords-empty');
     const familyLookup = new Map(SCENT_FAMILIES.map(family => [family.id, family]));
     const familyCardLookup = new Map();
     const familyNotesLookup = new Map();
@@ -2870,7 +2995,7 @@ function initWizard() {
         closeInfoPopover(activeInfoPopover, { force: true });
     };
 
-    const getSelectedNotesCountLabel = (count) => (
+    const getSelectedCountLabel = (count) => (
         count === 1 ? '1 selected' : `${count} selected`
     );
 
@@ -2881,7 +3006,7 @@ function initWizard() {
         const hasSelections = selectedCount > 0;
 
         selectedNotesTray.classList.toggle('has-selections', hasSelections);
-        selectedNotesCount.innerText = getSelectedNotesCountLabel(selectedCount);
+        selectedNotesCount.innerText = getSelectedCountLabel(selectedCount);
         selectedNotesEmpty.hidden = hasSelections;
         selectedNotesList.hidden = !hasSelections;
         selectedNotesList.innerHTML = '';
@@ -2922,6 +3047,50 @@ function initWizard() {
         });
     };
 
+    const renderSelectedAccordsTray = () => {
+        if (!selectedAccordsTray || !selectedAccordsList || !selectedAccordsCount || !selectedAccordsEmpty) return;
+
+        const selectedCount = state.selectedAccords.length;
+        const hasSelections = selectedCount > 0;
+
+        selectedAccordsTray.classList.toggle('has-selections', hasSelections);
+        selectedAccordsCount.innerText = getSelectedCountLabel(selectedCount);
+        selectedAccordsEmpty.hidden = hasSelections;
+        selectedAccordsList.hidden = !hasSelections;
+        selectedAccordsList.innerHTML = '';
+
+        state.selectedAccords.forEach((accord) => {
+            const chip = document.createElement('button');
+            const accordLabel = document.createElement('span');
+            const accordKind = document.createElement('span');
+            const removeIcon = document.createElement('span');
+
+            chip.type = 'button';
+            chip.className = 'selected-note-chip selected-accord-chip';
+            chip.setAttribute('aria-label', `Remove ${accord} from accord families`);
+
+            accordLabel.className = 'selected-note-chip-label';
+            accordLabel.innerText = accord;
+            chip.appendChild(accordLabel);
+
+            accordKind.className = 'selected-note-chip-family selected-accord-chip-kind';
+            accordKind.innerText = 'Accord family';
+            chip.appendChild(accordKind);
+
+            removeIcon.className = 'selected-note-chip-remove';
+            removeIcon.setAttribute('aria-hidden', 'true');
+            removeIcon.innerText = '×';
+            chip.appendChild(removeIcon);
+
+            chip.addEventListener('click', () => {
+                state.selectedAccords = state.selectedAccords.filter(selectedAccord => selectedAccord !== accord);
+                syncScentProfileSelections();
+            });
+
+            selectedAccordsList.appendChild(chip);
+        });
+    };
+
     const syncFamilyCards = () => {
         familyCardLookup.forEach(({ card, subnotesContainer }, familyId) => {
             const isSelected = state.selectedFamilies.includes(familyId);
@@ -2947,6 +3116,7 @@ function initWizard() {
         syncNotePills();
         syncAccordPills();
         renderSelectedNotesTray();
+        renderSelectedAccordsTray();
         renderInterpretationPanel('scent');
         persistGuestExperience();
     };
@@ -3091,103 +3261,32 @@ function initWizard() {
 
     syncAccordPills();
 
-    // Step 3: Selection grids and Reveal Logic
-    const genderSection = document.getElementById('gender-section');
-    const occasionSection = document.getElementById('occasion-section');
-    const climateSection = document.getElementById('climate-section');
-    const perfSection = document.getElementById('perf-section');
-    const budgetSection = document.getElementById('budget-section');
-    let sliderInteracted = false;
-    let usageIntentRevealTimers = [];
+    // Step 3: Structured usage intent controls
+    syncUsageIntentStepState = () => {};
+    clearUsageIntentStepTimers = () => {};
 
-    const clearUsageIntentRevealTimers = () => {
-        usageIntentRevealTimers.forEach(timerId => window.clearTimeout(timerId));
-        usageIntentRevealTimers = [];
-        [genderSection, occasionSection, climateSection, perfSection, budgetSection].forEach(section => {
-            if (section) {
-                section.dataset.revealScheduled = 'false';
-            }
-        });
-    };
-
-    const revealSection = (section, { scroll = false } = {}) => {
-        if (!section || section.classList.contains('revealed')) return;
-
-        section.dataset.revealScheduled = 'false';
-        section.classList.add('revealed');
-
-        if (scroll && currentStep === 3) {
-            window.setTimeout(() => {
-                section.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-            }, 180);
-        }
-    };
-
-    const queueSectionReveal = (section, delay = 0) => {
-        if (!section || section.classList.contains('revealed') || section.dataset.revealScheduled === 'true') {
-            return;
-        }
-
-        if (delay <= 0) {
-            revealSection(section);
-            return;
-        }
-
-        section.dataset.revealScheduled = 'true';
-        const timerId = window.setTimeout(() => {
-            revealSection(section);
-            usageIntentRevealTimers = usageIntentRevealTimers.filter(id => id !== timerId);
-        }, delay);
-        usageIntentRevealTimers.push(timerId);
-    };
-
-    const revealUsageIntentSections = ({ immediate = false } = {}) => {
-        if (currentStep !== 3) return;
-
-        const baseDelay = immediate ? 0 : 120;
-        const staggerDelay = immediate ? 0 : 140;
-        const hasUsageInput = Boolean(
-            state.usageDescription.trim()
-            || state.occasions.length > 0
-            || state.climates.length > 0
-        );
-
-        queueSectionReveal(genderSection, baseDelay);
-        queueSectionReveal(occasionSection, baseDelay + staggerDelay);
-        queueSectionReveal(climateSection, baseDelay + (staggerDelay * 2));
-        queueSectionReveal(budgetSection, baseDelay + (staggerDelay * 3));
-
-        if (hasUsageInput) {
-            if (immediate) {
-                revealSection(perfSection, { scroll: true });
-            } else {
-                queueSectionReveal(perfSection, baseDelay + (staggerDelay * 4));
-            }
-        }
-    };
-
-    const resetUsageIntentCascade = () => {
-        clearUsageIntentRevealTimers();
-        sliderInteracted = false;
-        [genderSection, occasionSection, climateSection, perfSection, budgetSection].forEach(section => {
-            if (section) {
-                section.classList.remove('revealed');
-                section.dataset.revealScheduled = 'false';
-            }
-        });
-    };
-
-    syncUsageIntentStepState = revealUsageIntentSections;
-    clearUsageIntentStepTimers = clearUsageIntentRevealTimers;
-
-    const usageDesc = document.getElementById('usage-description');
-    if (usageDesc) {
-        usageDesc.addEventListener('input', () => revealUsageIntentSections({ immediate: true }));
-    }
-
-    const genderPillLookup = new Map();
     const occasionPillLookup = new Map();
     const climatePillLookup = new Map();
+    const genderSlider = document.getElementById('gender-slider');
+    const genderSliderLabel = document.getElementById('gender-slider-label');
+    const genderSliderDesc = document.getElementById('gender-slider-desc');
+    const genderSliderStops = Array.from(document.querySelectorAll('#gender-slider-stops .usage-slider-stop'));
+    const budgetSlider = document.getElementById('budget-slider');
+    const budgetSliderLabel = document.getElementById('budget-slider-label');
+    const budgetSliderDesc = document.getElementById('budget-slider-desc');
+    const budgetSliderStops = Array.from(document.querySelectorAll('#budget-slider-stops .usage-slider-stop'));
+
+    const updateSliderTrack = (slider) => {
+        if (!slider) return;
+
+        const min = Number(slider.min) || 0;
+        const max = Number(slider.max) || 100;
+        const currentValue = Number(slider.value) || min;
+        const denominator = max - min || 1;
+        const progress = ((currentValue - min) / denominator) * 100;
+
+        slider.style.background = `linear-gradient(to right, var(--clr-bar-fill-end) ${progress}%, var(--clr-slider-track) ${progress}%)`;
+    };
 
     const syncSelectablePills = (lookup, selectedValues) => {
         lookup.forEach((pill, value) => {
@@ -3195,11 +3294,55 @@ function initWizard() {
         });
     };
 
+    const syncUsageSliderStops = (stopElements, activeValue) => {
+        stopElements.forEach((stopElement) => {
+            stopElement.classList.toggle('active', Number(stopElement.getAttribute('data-val')) === Number(activeValue));
+        });
+    };
+
+    const updateGenderSliderUI = () => {
+        const activeIndex = getGenderSliderIndex(state.gender);
+        const activeOption = GENDER_SLIDER_OPTIONS[activeIndex];
+
+        if (genderSlider) {
+            genderSlider.value = String(activeIndex);
+            updateSliderTrack(genderSlider);
+        }
+
+        if (genderSliderLabel) {
+            genderSliderLabel.innerText = activeOption.label;
+        }
+
+        if (genderSliderDesc) {
+            genderSliderDesc.innerText = activeOption.description;
+        }
+
+        syncUsageSliderStops(genderSliderStops, activeIndex);
+    };
+
+    const updateBudgetSliderUI = () => {
+        const activeOption = getBudgetSliderOption(state.budget);
+
+        if (budgetSlider) {
+            budgetSlider.value = String(activeOption.value);
+            updateSliderTrack(budgetSlider);
+        }
+
+        if (budgetSliderLabel) {
+            budgetSliderLabel.innerText = activeOption.label;
+        }
+
+        if (budgetSliderDesc) {
+            budgetSliderDesc.innerText = activeOption.description;
+        }
+
+        syncUsageSliderStops(budgetSliderStops, activeOption.value);
+    };
+
     const syncUsageIntentSelections = () => {
-        syncSelectablePills(genderPillLookup, state.gender ? [state.gender] : []);
         syncSelectablePills(occasionPillLookup, state.occasions);
         syncSelectablePills(climatePillLookup, state.climates);
-        renderInterpretationPanel('usage');
+        updateGenderSliderUI();
         persistGuestExperience();
     };
 
@@ -3216,7 +3359,6 @@ function initWizard() {
 
                 state[stateKey] = nextValues;
                 syncUsageIntentSelections();
-                revealUsageIntentSections({ immediate: true });
             });
         });
     };
@@ -3236,34 +3378,21 @@ function initWizard() {
         });
     };
 
-    // Gender pills use lowercase data-val to match state.gender values
-    ['Masculine', 'Feminine', 'Unisex'].forEach(label => {
-        const grid = document.getElementById('gender-grid');
-        const pill = document.createElement('div');
-        pill.className = 'select-pill';
-        pill.setAttribute('data-type', 'gender');
-        pill.setAttribute('data-val', label.toLowerCase());
-        pill.textContent = label;
-        grid.appendChild(pill);
-        genderPillLookup.set(label.toLowerCase(), pill);
-    });
     populatePillGrid('occasion-grid', OCCASION_OPTIONS, 'occ', occasionPillLookup);
     populatePillGrid('climate-grid', CLIMATE_OPTIONS, 'cli', climatePillLookup);
 
-    // Gender is single-select (toggle on/off)
-    const genderGrid = document.getElementById('gender-grid');
-    genderGrid.querySelectorAll('.select-pill').forEach(pill => {
-        pill.addEventListener('click', () => {
-            const val = pill.getAttribute('data-val');
-            state.gender = state.gender === val ? '' : val;
-            syncUsageIntentSelections();
-            revealUsageIntentSections({ immediate: true });
-        });
-    });
-
     bindSelectables('occasion-grid', 'occasions', occasionPillLookup);
     bindSelectables('climate-grid', 'climates', climatePillLookup);
-    syncUsageIntentSelections();
+
+    if (genderSlider) {
+        genderSlider.addEventListener('input', (event) => {
+            const nextIndex = Number(event.target.value);
+            const nextOption = GENDER_SLIDER_OPTIONS[nextIndex] || GENDER_SLIDER_OPTIONS[2];
+            state.gender = nextOption.value;
+            updateGenderSliderUI();
+            persistGuestExperience();
+        });
+    }
 
     // Step 3 (Now includes Performance)
     const perfSlider = document.getElementById('perf-slider');
@@ -3281,39 +3410,29 @@ function initWizard() {
     perfSlider.addEventListener('input', (event) => {
         const val = parseInt(event.target.value, 10);
         state.performance = val;
-        sliderInteracted = sliderInteracted || event.isTrusted;
         
         let zoneIndex = Math.floor(val / 20);
         if (zoneIndex >= 5) zoneIndex = 4; // handle exactly 100
         
         perfLabel.innerText = perfZones[zoneIndex].name;
         perfDesc.innerText = perfZones[zoneIndex].desc;
-        
-        const progress = val + '%';
-        perfSlider.style.background = `linear-gradient(to right, var(--clr-bar-fill-end) ${progress}, var(--clr-slider-track) ${progress})`;
+        updateSliderTrack(perfSlider);
         persistGuestExperience();
-
-        if (sliderInteracted) {
-            revealSection(budgetSection, { scroll: true });
-        }
     });
 
     // Initialize the slider label immediately
     perfSlider.dispatchEvent(new Event('input'));
 
-    // Step 3 (Continued): Budget
-    const budgetGrid = document.getElementById('budget-grid');
-    budgetGrid.querySelectorAll('.budget-pill').forEach(pill => {
-        pill.addEventListener('click', () => {
-            // clear others
-            budgetGrid.querySelectorAll('.budget-pill').forEach(p => p.classList.remove('selected'));
-            pill.classList.add('selected');
-            state.budget = parseInt(pill.getAttribute('data-val'));
+    if (budgetSlider) {
+        budgetSlider.addEventListener('input', (event) => {
+            state.budget = normalizeBudgetPreference(event.target.value);
+            updateBudgetSliderUI();
             persistGuestExperience();
         });
-    });
-    // Set default budget select
-    budgetGrid.querySelector(`[data-val="${state.budget}"]`).classList.add('selected');
+    }
+
+    syncUsageIntentSelections();
+    updateBudgetSliderUI();
 
     syncWizardStateToUI = () => {
         clearPendingInterpretationWork();
@@ -3324,45 +3443,24 @@ function initWizard() {
         favInput.value = '';
         document.getElementById('fav-tags').innerHTML = '';
         document.getElementById('scent-description').value = state.scentDescription;
-        document.getElementById('usage-description').value = state.usageDescription;
         const scentMicStatus = document.getElementById('mic-status');
-        const usageMicStatus = document.getElementById('mic-status-usage');
 
         if (scentMicStatus) {
             scentMicStatus.textContent = scentMicStatus.dataset.defaultMessage || '';
             scentMicStatus.classList.remove('active');
         }
 
-        if (usageMicStatus) {
-            usageMicStatus.textContent = usageMicStatus.dataset.defaultMessage || '';
-            usageMicStatus.classList.remove('active');
-        }
-
         perfSlider.value = String(state.performance);
-        sliderInteracted = state.performance !== 50;
         perfSlider.dispatchEvent(new Event('input'));
-
-        budgetGrid.querySelectorAll('.budget-pill').forEach(pill => {
-            pill.classList.toggle('selected', Number(pill.getAttribute('data-val')) === state.budget);
-        });
+        updateBudgetSliderUI();
 
         renderFavTags();
         syncScentProfileSelections();
         syncUsageIntentSelections();
         renderInterpretationPanel('scent');
-        renderInterpretationPanel('usage');
-        resetUsageIntentCascade();
 
         if (state.interpretation.scent.status === 'idle' && state.scentDescription.trim().length >= 4) {
             queueInterpretation('scent', { immediate: true });
-        }
-
-        if (state.interpretation.usage.status === 'idle' && state.usageDescription.trim().length >= 4) {
-            queueInterpretation('usage', { immediate: true });
-        }
-
-        if (currentStep === 3) {
-            revealUsageIntentSections({ immediate: true });
         }
 
         const loaderText = document.getElementById('loader-text');
@@ -3444,6 +3542,7 @@ function setActiveView(viewId) {
 
     viewState.activeViewId = viewId;
     updateTopNavigationState();
+    updateProgress();
 }
 
 function getThemeClass(archetypeTitle) {
@@ -3780,11 +3879,11 @@ function applyLatestProfileSnapshot(profile) {
     state.selectedFamilies = Array.isArray(snapshot.selectedFamilies) ? [...snapshot.selectedFamilies] : [];
     state.selectedNotes = Array.isArray(snapshot.selectedNotes) ? [...snapshot.selectedNotes] : [];
     state.selectedAccords = Array.isArray(snapshot.selectedAccords) ? [...snapshot.selectedAccords] : [];
-    state.gender = typeof snapshot.gender === 'string' ? snapshot.gender : '';
+    state.gender = normalizeGenderPreference(snapshot.gender);
     state.occasions = Array.isArray(snapshot.occasions) ? [...snapshot.occasions] : [];
-    state.climates = Array.isArray(snapshot.climates) ? [...snapshot.climates] : [];
+    state.climates = normalizeClimateSelections(snapshot.climates);
     state.performance = Number.isFinite(Number(snapshot.performance)) ? Number(snapshot.performance) : 50;
-    state.budget = Number.isFinite(Number(snapshot.budget)) ? Number(snapshot.budget) : 2;
+    state.budget = normalizeBudgetPreference(snapshot.budget);
     state.interpretation = {
         scent: createEmptyInterpretationState('scent'),
         usage: createEmptyInterpretationState('usage')
@@ -4404,7 +4503,6 @@ function updateAuthUI() {
     const btnTopLogin = document.getElementById('btn-top-login');
     const appNav = document.getElementById('app-nav');
     const accountNav = document.getElementById('account-nav');
-    const accountEmail = document.getElementById('nav-account-email');
 
     if (btnTopLogin) {
         btnTopLogin.hidden = authState.isLoggedIn;
@@ -4417,10 +4515,6 @@ function updateAuthUI() {
 
     if (accountNav) {
         accountNav.hidden = !authState.isLoggedIn;
-    }
-
-    if (accountEmail) {
-        accountEmail.innerText = authState.profileEmail || '';
     }
 
     renderProfilePanel();
@@ -4466,6 +4560,116 @@ function initAppearanceControls() {
     updateAppearanceToggleUI();
 }
 
+function isNavigationDrawerOpen() {
+    return navigationDrawerState.isMobile
+        ? navigationDrawerState.mobileOpen
+        : navigationDrawerState.desktopOpen;
+}
+
+function syncNavigationDrawerUI() {
+    const drawerToggle = document.getElementById('btn-nav-drawer-toggle');
+    const drawerIcon = document.getElementById('nav-drawer-toggle-icon');
+    const drawerBackdrop = document.getElementById('app-drawer-backdrop');
+    const isOpen = isNavigationDrawerOpen();
+    const isMobile = navigationDrawerState.isMobile;
+
+    document.body.classList.toggle('nav-drawer-mobile', isMobile);
+    document.body.classList.toggle('nav-drawer-open', isOpen);
+    document.body.classList.toggle('nav-drawer-collapsed', !isMobile && !isOpen);
+
+    if (drawerToggle) {
+        drawerToggle.setAttribute('aria-expanded', String(isOpen));
+        drawerToggle.setAttribute(
+            'aria-label',
+            isMobile
+                ? (isOpen ? 'Close navigation drawer' : 'Open navigation drawer')
+                : (isOpen ? 'Collapse navigation sidebar' : 'Open navigation sidebar')
+        );
+    }
+
+    if (drawerIcon) {
+        drawerIcon.textContent = isOpen ? '<' : '>';
+    }
+
+    if (drawerBackdrop) {
+        drawerBackdrop.hidden = !(isMobile && isOpen);
+    }
+}
+
+function setNavigationDrawerViewport(isMobile) {
+    const normalizedIsMobile = Boolean(isMobile);
+
+    if (navigationDrawerState.isMobile === normalizedIsMobile) {
+        syncNavigationDrawerUI();
+        return;
+    }
+
+    navigationDrawerState.isMobile = normalizedIsMobile;
+
+    if (!normalizedIsMobile) {
+        navigationDrawerState.mobileOpen = false;
+    }
+
+    syncNavigationDrawerUI();
+}
+
+function toggleNavigationDrawer() {
+    if (navigationDrawerState.isMobile) {
+        navigationDrawerState.mobileOpen = !navigationDrawerState.mobileOpen;
+    } else {
+        navigationDrawerState.desktopOpen = !navigationDrawerState.desktopOpen;
+    }
+
+    syncNavigationDrawerUI();
+}
+
+function closeNavigationDrawer() {
+    if (!navigationDrawerState.isMobile || !navigationDrawerState.mobileOpen) {
+        return;
+    }
+
+    navigationDrawerState.mobileOpen = false;
+    syncNavigationDrawerUI();
+}
+
+function initNavigationDrawer() {
+    const drawerToggle = document.getElementById('btn-nav-drawer-toggle');
+    const drawerBackdrop = document.getElementById('app-drawer-backdrop');
+
+    if (drawerToggle && !drawerToggle.__drawerBound) {
+        drawerToggle.addEventListener('click', toggleNavigationDrawer);
+        drawerToggle.__drawerBound = true;
+    }
+
+    if (drawerBackdrop && !drawerBackdrop.__drawerBound) {
+        drawerBackdrop.addEventListener('click', closeNavigationDrawer);
+        drawerBackdrop.__drawerBound = true;
+    }
+
+    if (typeof window.matchMedia === 'function') {
+        navigationDrawerMediaQuery = window.matchMedia(NAV_DRAWER_MOBILE_BREAKPOINT);
+        setNavigationDrawerViewport(navigationDrawerMediaQuery.matches);
+
+        if (!navigationDrawerMediaQuery.__drawerBound) {
+            const handleChange = (event) => {
+                setNavigationDrawerViewport(event.matches);
+            };
+
+            if (typeof navigationDrawerMediaQuery.addEventListener === 'function') {
+                navigationDrawerMediaQuery.addEventListener('change', handleChange);
+            } else if (typeof navigationDrawerMediaQuery.addListener === 'function') {
+                navigationDrawerMediaQuery.addListener(handleChange);
+            }
+
+            navigationDrawerMediaQuery.__drawerBound = true;
+        }
+
+        return;
+    }
+
+    syncNavigationDrawerUI();
+}
+
 function updateTopNavigationState() {
     const discoverButton = document.getElementById('btn-nav-discover');
     const resultsButton = document.getElementById('btn-nav-results');
@@ -4492,6 +4696,7 @@ function openDiscoverView() {
     if (viewState.activeViewId === 'loading-view') return;
 
     setActiveView('wizard-view');
+    closeNavigationDrawer();
     updateWizardUI();
     applyTheme();
 }
@@ -4511,6 +4716,7 @@ function openResultsView() {
     renderProfilePanel();
     renderResultsCards(state.latestRecommendations);
     setActiveView('results-view');
+    closeNavigationDrawer();
     applyTheme();
 }
 
@@ -4524,6 +4730,7 @@ function openProfileView() {
     resetProfileFilters();
     renderProfileView();
     setActiveView('profile-view');
+    closeNavigationDrawer();
     applyTheme();
 }
 
@@ -5179,12 +5386,14 @@ function renderPills(container, items, onRemove) {
 }
 
 function updateProgress() {
-    const progress = (currentStep / totalSteps) * 100;
-    const progressBar = document.getElementById('wizard-progress');
+    const completedSteps = viewState.activeViewId === 'results-view'
+        ? totalSteps
+        : Math.max(0, currentStep - 1);
+    const progress = (completedSteps / totalSteps) * 100;
 
-    if (progressBar) {
+    document.querySelectorAll('[data-wizard-progress]').forEach(progressBar => {
         progressBar.style.width = `${progress}%`;
-    }
+    });
 }
 
 function updateWizardUI() {
