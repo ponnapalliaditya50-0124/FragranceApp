@@ -192,7 +192,7 @@ describe('OlfactoryEngine', () => {
                 budget: 4,
                 performance: 70,
                 occasions: [],
-                climates: ['Cold & Crisp'],
+                climates: ['Cold & Snowy'],
             };
             const results = engine.calculateRecommendationPool(state);
             const oud = results.find(r => r.id === 'tom-ford-oud-wood');
@@ -392,7 +392,7 @@ describe('OlfactoryEngine', () => {
                 budget: 2,
                 performance: 50,
                 occasions: [],
-                climates: ['Cold & Crisp'],
+                climates: ['Cold & Snowy'],
             };
             const results = eng.calculateRecommendationPool(state);
             const allYear = results.find(r => r.id === 'allyear-frag');
@@ -431,7 +431,7 @@ describe('OlfactoryEngine', () => {
         });
     });
 
-    describe('gender hard filter', () => {
+    describe('gender soft preference', () => {
         const genderDb = [
             { id: 'mens', name: 'Mens', house: 'T', gender: 'men', priceTier: 1,
               notes: null, accordTags: null, noteFamilies: null, seasonTags: null,
@@ -447,38 +447,29 @@ describe('OlfactoryEngine', () => {
               occasionTags: null, longevityScore: 5, sillageScore: 5, blindBuyScore: 50 },
         ];
 
-        test('masculine filter includes men and unisex', () => {
+        test('masculine preference ranks men ahead of women', () => {
             const eng = new OlfactoryEngine(genderDb, {});
-            const state = { gender: 'masculine', budget: 4, performance: 50, occasions: [], climates: [] };
+            const state = { gender: 'Masculine', budget: 4, performance: 50, occasions: [], climates: [] };
             const results = eng.calculateRecommendationPool(state);
-            const ids = results.map(r => r.id);
-            expect(ids).toContain('mens');
-            expect(ids).toContain('uni');
-            expect(ids).not.toContain('womens');
-            expect(ids).toContain('nogender'); // null gender passes through
+            expect(results.findIndex(r => r.id === 'mens')).toBeLessThan(results.findIndex(r => r.id === 'womens'));
         });
 
-        test('feminine filter includes women and unisex', () => {
+        test('feminine preference ranks women ahead of men', () => {
             const eng = new OlfactoryEngine(genderDb, {});
-            const state = { gender: 'feminine', budget: 4, performance: 50, occasions: [], climates: [] };
+            const state = { gender: 'Feminine', budget: 4, performance: 50, occasions: [], climates: [] };
             const results = eng.calculateRecommendationPool(state);
-            const ids = results.map(r => r.id);
-            expect(ids).toContain('womens');
-            expect(ids).toContain('uni');
-            expect(ids).not.toContain('mens');
+            expect(results.findIndex(r => r.id === 'womens')).toBeLessThan(results.findIndex(r => r.id === 'mens'));
         });
 
-        test('unisex filter includes only unisex', () => {
+        test('balanced preference ranks unisex ahead of men and women', () => {
             const eng = new OlfactoryEngine(genderDb, {});
-            const state = { gender: 'unisex', budget: 4, performance: 50, occasions: [], climates: [] };
+            const state = { gender: 'Balanced', budget: 4, performance: 50, occasions: [], climates: [] };
             const results = eng.calculateRecommendationPool(state);
-            const ids = results.map(r => r.id);
-            expect(ids).toContain('uni');
-            expect(ids).not.toContain('mens');
-            expect(ids).not.toContain('womens');
+            expect(results.findIndex(r => r.id === 'uni')).toBeLessThan(results.findIndex(r => r.id === 'mens'));
+            expect(results.findIndex(r => r.id === 'uni')).toBeLessThan(results.findIndex(r => r.id === 'womens'));
         });
 
-        test('no gender preference includes all', () => {
+        test('no gender preference still includes all entries', () => {
             const eng = new OlfactoryEngine(genderDb, {});
             const state = { gender: '', budget: 4, performance: 50, occasions: [], climates: [] };
             const results = eng.calculateRecommendationPool(state);

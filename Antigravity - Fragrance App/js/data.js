@@ -189,7 +189,7 @@ async function fetchRecommendations(userState) {
             performance: parseIntegerOrFallback(userState.performance, 50),
             selectedNotes: userState.selectedNotes || [],
             scentDescription: userState.scentDescription || '',
-            usageDescription: userState.usageDescription || '',
+            usageDescription: '',
             derivedProfile: {
                 scent: {
                     families: derivedScentProfile.families || [],
@@ -585,5 +585,12 @@ const OCCASION_OPTIONS = [
 ];
 
 const CLIMATE_OPTIONS = [
-    "Hot & Humid", "Dry & Desert", "Temperate", "Cold & Crisp", "Tropical"
+    "Hot & Humid",
+    "Dry Heat",
+    "Breezy Coastal",
+    "Tropical",
+    "Mild Everyday",
+    "Rainy & Overcast",
+    "Cool Air",
+    "Cold & Snowy"
 ];
