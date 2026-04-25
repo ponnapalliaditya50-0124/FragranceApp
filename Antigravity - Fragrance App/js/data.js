@@ -189,7 +189,7 @@ async function fetchRecommendations(userState) {
             performance: parseIntegerOrFallback(userState.performance, 50),
             selectedNotes: userState.selectedNotes || [],
             scentDescription: userState.scentDescription || '',
-            usageDescription: userState.usageDescription || '',
+            usageDescription: '',
             derivedProfile: {
                 scent: {
                     families: derivedScentProfile.families || [],
@@ -571,7 +571,11 @@ const ARCHETYPES = {
     "The Bold Extrovert": "You want to be noticed before you even enter the room. High sillage and undeniable presence are your hallmarks.",
     "The Modern Aesthete": "Avant-garde and artistic. You appreciate clean lines, minimalism, and abstract perfumery that makes people ask 'what is that?'.",
     "The Easygoing Optimist": "Fresh, uplifting, and totally uncomplicated. Your scent is a breath of fresh air that offends no one.",
-    "The Enigmatic Allure": "Sweet but transparent, loud but airy. You embody modern luxury that is impossible to pin down."
+    "The Enigmatic Allure": "Sweet but transparent, loud but airy. You embody modern luxury that is impossible to pin down.",
+    "The Coastal Minimalist": "Crisp, airy, polished, and quietly luxe. A sea-glass profile built for mineral freshness, clean lines, and understated confidence.",
+    "The Refined Wanderer": "Grounded but polished. A tailored outdoors profile built on green, citrus, aromatic, and woody structure.",
+    "The Solar Muse": "Radiant, warm, playful, and vacation-coded. A luminous profile for tropical, lactonic, citrus-fruity, sunlit scents.",
+    "The Velvet Connoisseur": "Rich, indulgent, and sophisticated. A cocktail-lounge profile for boozy, tobacco, coffee, cacao, honey, amber, and warm gourmand depth."
 };
 
 const OCCASION_OPTIONS = [
@@ -581,5 +585,12 @@ const OCCASION_OPTIONS = [
 ];
 
 const CLIMATE_OPTIONS = [
-    "Hot & Humid", "Dry & Desert", "Temperate", "Cold & Crisp", "Tropical"
+    "Hot & Humid",
+    "Dry Heat",
+    "Breezy Coastal",
+    "Tropical",
+    "Mild Everyday",
+    "Rainy & Overcast",
+    "Cool Air",
+    "Cold & Snowy"
 ];
