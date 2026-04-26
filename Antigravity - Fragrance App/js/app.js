@@ -576,13 +576,37 @@ function isDisplayNumber(value) {
 }
 
 function formatPriceTier(value) {
-    return Number.isInteger(value) && value > 0 ? '$'.repeat(value) : '—';
+    if (Number.isInteger(value) && value > 0) {
+        return PRICE_TIER_NAMES[value] || '$'.repeat(value);
+    }
+
+    const tier = String(value ?? '').trim();
+    if (!tier || tier === '—') return '';
+    const normalizedTier = tier.toLowerCase().replace(/[/_-]+/g, ' ').replace(/\s+/g, ' ').trim();
+    if (PRICE_TIER_DISPLAY_NAMES[normalizedTier]) return PRICE_TIER_DISPLAY_NAMES[normalizedTier];
+
+    return tier
+        .split(/\s+/)
+        .filter(Boolean)
+        .map(part => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+        .join(' ');
 }
 
 const PRICE_TIER_NAMES = { 1: 'Designer/Accessible', 2: 'Premium Designer', 3: 'High-End Niche' };
+const PRICE_TIER_DISPLAY_NAMES = {
+    affordable: 'Affordable',
+    budget: 'Budget',
+    'mid range': 'Mid-range',
+    midrange: 'Mid-range',
+    premium: 'Premium',
+    luxury: 'Luxury',
+    'premium designer': 'Premium Designer',
+    'designer accessible': 'Designer/Accessible',
+    'high end niche': 'High-End Niche'
+};
 
 function formatPriceTierLabel(value) {
-    return PRICE_TIER_NAMES[value] || '';
+    return Number.isInteger(value) && value > 0 ? '$'.repeat(value) : '';
 }
 
 function formatMetricScore(value) {
@@ -1362,7 +1386,7 @@ function renderFragranceDetail(fragrance) {
         return;
     }
 
-    const insight = buildResultInsight(fragrance);
+    const tierStr = formatPriceTier(fragrance.priceTier);
     const dupe = Array.isArray(engine.database)
         ? engine.database.find(candidate => candidate.dupeOf === fragrance.id && candidate.priceTier < fragrance.priceTier)
         : null;
@@ -1383,19 +1407,21 @@ function renderFragranceDetail(fragrance) {
                 <div>
                     <p class="profile-panel-label">${escapeHtml(fragrance.house)}</p>
                     <h2 class="profile-panel-title">${escapeHtml(fragrance.name)}</h2>
-                    <p class="detail-copy">${escapeHtml(getFragranceVibeLabel(fragrance))} • ${escapeHtml(insight.confidenceLabel)} • ${escapeHtml(insight.scoreLabel)}</p>
+                    <p class="detail-copy">${escapeHtml(getFragranceVibeLabel(fragrance))}</p>
                 </div>
-                <div class="d-tier">${formatPriceTier(fragrance.priceTier)}</div>
+                ${tierStr ? `<div class="d-tier">${escapeHtml(tierStr)}</div>` : ''}
             </div>
 
             <div class="detail-metric-grid">
                 <div class="dossier-takeaway">
                     <span class="wizard-summary-label">Longevity</span>
                     <strong>${formatMetricScore(fragrance.longevityScore)}</strong>
+                    <span class="detail-metric-note detail-metric-note-placeholder" aria-hidden="true"></span>
                 </div>
                 <div class="dossier-takeaway">
                     <span class="wizard-summary-label">Sillage</span>
                     <strong>${formatMetricScore(fragrance.sillageScore)}</strong>
+                    <span class="detail-metric-note detail-metric-note-placeholder" aria-hidden="true"></span>
                 </div>
                 <div class="dossier-takeaway">
                     <span class="wizard-summary-label">Blind Buy</span>
@@ -1403,8 +1429,9 @@ function renderFragranceDetail(fragrance) {
                     <span class="detail-metric-note">Based on community ratings and wearability profile</span>
                 </div>
                 <div class="dossier-takeaway">
-                    <span class="wizard-summary-label">Power</span>
+                    <span class="wizard-summary-label">Strength</span>
                     <strong>${Math.round(getFragrancePowerScore(fragrance))}/100</strong>
+                    <span class="detail-metric-note detail-metric-note-placeholder" aria-hidden="true"></span>
                 </div>
             </div>
 
@@ -5581,6 +5608,7 @@ function renderResultsCards(topFrags) {
 
     displayPool.forEach((frag, idx) => {
         const tierStr = formatPriceTier(frag.priceTier);
+        const tierMeta = formatPriceTierLabel(frag.priceTier);
         const blindBuyBadge = getBlindBuyBadge(frag.blindBuyScore);
         const longevityWidth = getMetricBarWidth(frag.longevityScore);
         const sillageWidth = getMetricBarWidth(frag.sillageScore);
@@ -5597,6 +5625,10 @@ function renderResultsCards(topFrags) {
         const actionLabel = authState.isLoggedIn
             ? (isSaved ? 'Saved to Profile' : 'Add to Profile')
             : 'Create Profile to Save';
+        const accordHtml = (frag.accordTags || [])
+            .slice(0, 5)
+            .map(accord => `<span class="dossier-accord-chip">${escapeHtml(accord)}</span>`)
+            .join('');
 
         // Extract Notes (structured)
         const renderNoteGroup = (label, notes) => {
@@ -5605,15 +5637,16 @@ function renderResultsCards(topFrags) {
                 <div class="note-group">
                     <span class="note-label">${label}</span>
                     <div class="note-pills">
-                        ${notes.slice(0, 3).map(n => `<span class="note-pill">${n}</span>`).join('')}
+                        ${notes.slice(0, 3).map(n => `<span class="note-pill">${escapeHtml(n)}</span>`).join('')}
                     </div>
                 </div>
             `;
         };
+        const notes = frag.notes || {};
         const noteHtml = `
-            ${renderNoteGroup('Top', frag.notes.top)}
-            ${renderNoteGroup('Heart', frag.notes.heart)}
-            ${renderNoteGroup('Base', frag.notes.base)}
+            ${renderNoteGroup('Top', notes.top)}
+            ${renderNoteGroup('Heart', notes.heart)}
+            ${renderNoteGroup('Base', notes.base)}
         `;
         
         let dupeHtml = '';
@@ -5652,25 +5685,32 @@ function renderResultsCards(topFrags) {
                 <div class="dossier-badge ${blindBuyBadge.className}">${blindBuyBadge.label} • ${blindBuyBadge.value}</div>
                 <div class="dossier-header">
                     <div class="d-info">
-                        <div class="d-house">${frag.house}</div>
-                        <div class="d-name">${frag.name}</div>
+                        <div class="d-house">${escapeHtml(frag.house)}</div>
+                        <div class="d-name">${escapeHtml(frag.name)}</div>
                     </div>
-                    <div class="d-tier">${tierStr}</div>
+                    ${tierStr ? `<div class="d-tier">${escapeHtml(tierStr)}</div>` : ''}
                 </div>
 
-                <div class="d-tier-badge">
-                    <span class="d-tier-symbols">${tierStr}</span>
-                    <span class="d-tier-name">${formatPriceTierLabel(frag.priceTier)}</span>
-                </div>
+                ${tierStr ? `
+                    <div class="d-tier-badge">
+                        <span class="d-tier-symbols">${escapeHtml(tierStr)}</span>
+                        ${tierMeta ? `<span class="d-tier-name">${escapeHtml(tierMeta)}</span>` : ''}
+                    </div>
+                ` : ''}
 
                 <div class="dossier-insight-panel">
                     <div class="dossier-confidence-row">
                         <span class="dossier-confidence">${escapeHtml(insight.confidenceLabel)}</span>
-                        <span class="dossier-score-label">${escapeHtml(insight.scoreLabel)}</span>
                     </div>
                     <div class="dossier-reason-row">
                         ${insight.reasons.map(reason => `<span class="dossier-reason-chip">${escapeHtml(reason)}</span>`).join('')}
                     </div>
+                    ${accordHtml ? `
+                        <div class="dossier-accords">
+                            <span class="wizard-summary-label">Main accords</span>
+                            <div class="dossier-accord-row">${accordHtml}</div>
+                        </div>
+                    ` : ''}
                     <div class="dossier-takeaway-grid">
                         <div class="dossier-takeaway">
                             <span class="wizard-summary-label">Budget</span>
